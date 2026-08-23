@@ -74,8 +74,7 @@ ASM_SOURCES =  \
 startup_stm32l432xx.s
 
 # ASMM sources
-ASMM_SOURCES = 
-
+ASMM_SOURCES =
 
 
 #######################################
@@ -133,6 +132,11 @@ C_INCLUDES =  \
 -IDrivers/STM32L4xx_HAL_Driver/Inc/Legacy \
 -IDrivers/CMSIS/Device/ST/STM32L4xx/Include \
 -IDrivers/CMSIS/Include
+
+# Application sources (App/), see app.mk.
+# MUST be included after C_SOURCES/C_INCLUDES definitions and before OBJECTS.
+# NOTE: CubeMX regeneration overwrites this Makefile — re-add this line after regen.
+-include app.mk
 
 
 # compile gcc flags

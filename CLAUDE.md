@@ -13,8 +13,10 @@ The codebase is a freshly generated STM32CubeMX HAL project: clock/GPIO/peripher
 - Toolchain: `arm-none-eabi-gcc` (on this machine via MSYS2 mingw64). Pass `make GCC_PATH=<dir>` if the toolchain is not on PATH.
 - `make -j` → `build/Armor_Cmzy26_081.{elf,hex,bin,map}` (plus per-file `.lst` listings).
 - `make clean`
-- No tests, no linter, and no flash target in the Makefile. `openocd` (ST-Link) is installed on this machine for flashing.
-- `compile_commands.json` at the repo root feeds clangd (LSP).
+- Application code lives in `App/` and is added via `-include app.mk` in the Makefile (after C_INCLUDES, before OBJECTS). **CubeMX regeneration overwrites the Makefile — re-add the include line after regenerating.** Structure conventions are documented in `App/README.md`.
+- No tests, no linter, and no flash target in the Makefile. `openocd` (ST-Link) is installed on this machine for flashing:
+  `openocd -f interface/stlink.cfg -f target/stm32l4x.cfg -c "program build/Armor_Cmzy26_081.elf verify reset exit"`
+- `compile_commands.json` at the repo root feeds clangd (LSP); regenerate it after adding sources (its entries mirror the Makefile flags + `-IApp/...`).
 
 ## Architecture
 
