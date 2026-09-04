@@ -379,7 +379,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -705,26 +705,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(ADC_SYNC_GPIO_Port, ADC_SYNC_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, ADC_CS_Pin|ADC_SYNC_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, IND_ROHT_Pin|IND_NORM_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(ADC_CS_GPIO_Port, ADC_CS_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : ADC_NDRDY_Pin */
-  GPIO_InitStruct.Pin = ADC_NDRDY_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(ADC_NDRDY_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : ADC_SYNC_Pin */
-  GPIO_InitStruct.Pin = ADC_SYNC_Pin;
+  /*Configure GPIO pins : ADC_CS_Pin ADC_SYNC_Pin */
+  GPIO_InitStruct.Pin = ADC_CS_Pin|ADC_SYNC_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(ADC_SYNC_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA3_NC_Pin PA8_NC_Pin */
   GPIO_InitStruct.Pin = PA3_NC_Pin|PA8_NC_Pin;
@@ -739,12 +730,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : ADC_CS_Pin */
-  GPIO_InitStruct.Pin = ADC_CS_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(ADC_CS_GPIO_Port, &GPIO_InitStruct);
+  /*Configure GPIO pin : ADC_NDRDY_Pin */
+  GPIO_InitStruct.Pin = ADC_NDRDY_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(ADC_NDRDY_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB7_NC_Pin */
   GPIO_InitStruct.Pin = PB7_NC_Pin;

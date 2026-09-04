@@ -26,6 +26,19 @@
 static hit_param_t s_param;
 static uint32_t    s_tick_ms = 0u;
 
+/* ---- 诊断：1s 速率快照（调试器直接 watch，检查漏跑情况） ---- */
+static volatile uint32_t s_rate_drdy;     /* 每秒 DRDY 中断数（期望 ≈3906） */
+static volatile uint32_t s_rate_frames;   /* 每秒消费帧数（应 ≈s_rate_drdy） */
+static volatile uint32_t s_rate_spi_err;  /* 每秒 SPI 错误增量 */
+static volatile uint32_t s_rate_drop;     /* 每秒跳帧增量 */
+static uint32_t s_last_drdy;
+static uint32_t s_last_frames;
+static uint32_t s_last_spi_err;
+static uint32_t s_last_drop;
+
+/* 最近一帧解析结果（调试器实时观察 ADC 数据用，每 256µs 更新一次） */
+static volatile ads_frame_t s_last_frame;
+
 void App_Init(void)
 {
     /* 参数：骨架阶段用默认值；TODO(Step 5)：Cal_Load 从 Flash 恢复标定值。 */
@@ -35,13 +48,18 @@ void App_Init(void)
     App_Log_Printf("\r\nApp skeleton OK (v0.1)\r\n");
 
     App_Can_Init();            /* CAN 启动 + 通知使能（Step 4 补齐发送/分发） */
-    ADS131M04_Init();          /* TODO(Step 1)：完整初始化序列 */
+    ADS131M04_Init();          /* Step 1：复位 + 全寄存器写入 + 回读校验 + 方案 A 读取链 */
+    ADS131M04_RunSelfTest();   /* Step 1：M1 验证（回读值/DRDY 频率/噪声 RMS 打印）——TODO(Step 2) 并入统一自检流程 */
     TempMon_Init();            /* TODO(Step 5) */
     Ws2812_Init();             /* TODO(Step 3)：发送实现 */
     HitDetect_Init(&s_param);  /* TODO(Step 2)：检测管线 */
     LedStatus_Init();          /* TODO(Step 3)：灯效生成 */
     StateMachine_Init();       /* 骨架：BOOT→NORMAL 占位 */
     BoardComm_Init();          /* TODO(Step 4)：协议栈实例化 */
+
+    /* 启动 1kHz 系统时基（TIM2 更新中断）——CubeMX 只生成 Init 不 Start，必须显式启动；
+     * 放在全部模块初始化之后，避免首个 tick 命中半初始化模块。 */
+    HAL_TIM_Base_Start_IT(&htim2);
 }
 
 void App_Loop(void)
@@ -52,6 +70,7 @@ void App_Loop(void)
         ads_frame_t frame;
         if (ADS131M04_ReadFrame(&frame) == 0)
         {
+            s_last_frame = frame;   /* 调试观察点（Ozone 2Hz 刷新即可看到流动数据） */
             HitDetect_Feed(&frame);
         }
     }
@@ -77,6 +96,21 @@ void App_OnTick1ms(void)
     if ((s_tick_ms % 500u) == 0u)
     {
         HAL_GPIO_TogglePin(IND_NORM_GPIO_Port, IND_NORM_Pin);
+    }
+
+    /* 诊断：每秒快照 DRDY 速率/错误增量/帧消费速率（Step 1 验证用） */
+    if ((s_tick_ms % 1000u) == 0u)
+    {
+        ads_diag_t d;
+        ADS131M04_GetDiag(&d);
+        s_rate_drdy    = d.drdy_cnt - s_last_drdy;
+        s_last_drdy    = d.drdy_cnt;
+        s_rate_frames  = d.frames_read - s_last_frames;
+        s_last_frames  = d.frames_read;
+        s_rate_spi_err = d.spi_err - s_last_spi_err;
+        s_last_spi_err = d.spi_err;
+        s_rate_drop    = d.drop_cnt - s_last_drop;
+        s_last_drop    = d.drop_cnt;
     }
 }
 

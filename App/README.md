@@ -68,7 +68,7 @@ App/
 | weak 回调 | 定义位置 | 触发源（it.c 已生成） | 处理规则 |
 |---|---|---|---|
 | `HAL_TIM_PeriodElapsedCallback` | app/main_app.c | TIM2_IRQHandler（1kHz） | 仅 `htim->Instance==TIM2` 时调 `App_OnTick1ms()` |
-| `HAL_GPIO_EXTI_Callback` | bsp/ads131m04.c | EXTI15_10_IRQHandler（PC14 DRDY） | 仅 `ADC_NDRDY_Pin` 时调 `ADS131M04_IrqDrdy()` |
+| `HAL_GPIO_EXTI_Callback` | bsp/ads131m04.c | EXTI15_10_IRQHandler（PA15 DRDY，it.c 生成） | 仅 `ADC_NDRDY_Pin` 时调 `ADS131M04_IrqDrdy()` |
 | `HAL_SPI_TxRxCpltCallback` | bsp/ads131m04.c | SPI1/DMA1_Ch2/3 IRQ | 仅 SPI1 时调 `ADS131M04_IrqDmaDone()` |
 | `HAL_UART_TxCpltCallback` | bsp/ws2812_uart.c | USART2/DMA1_Ch7 IRQ | 仅 USART2 时调 `Ws2812_IrqTxDone()` |
 | `HAL_CAN_RxFifo0MsgPendingCallback` | comm/app_can.c | CAN1_RX0_IRQHandler | 排空 FIFO0 分发（Step4 实现） |
@@ -117,7 +117,7 @@ App/
 
 - 状态机（`app/state_machine.h`）：`SM_STATE_BOOT/NORMAL/HIT/FAULT/COMM_LOST/ID_SETUP/ID_CONFLICT`（《设计方案》第 11 章状态表）。
 - 灯效（`app/led_status.h`）：`LED_EFF_NORMAL/HIT/ID_SETUP/FAULT/COMM_LOST/ID_CONFLICT/BOOT`；频率：快闪 5Hz、慢闪 1Hz、FAULT 红蓝 500ms、ID_CONFLICT 红蓝紫 333ms；帧刷新 20Hz。
-- 指示 LED：**PB0=超温指示、PB1=系统正常指示**（NORMAL/HIT/ID_SETUP 亮；灌电流，置 0 点亮）。骨架阶段 PB1 由 main_app 1Hz 闪烁自证（Step3 起移交 LedStatus）。
+- 指示 LED：**PB0=超温指示、PB1=系统正常指示**（NORMAL/HIT/ID_SETUP 亮；**高电平点亮、低电平灭**——硬件实测确认）。骨架阶段 PB1 由 main_app 1Hz 闪烁自证（Step3 起移交 LedStatus）。
 
 ## 11. 数据流与缓冲约定
 

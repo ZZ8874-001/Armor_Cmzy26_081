@@ -31,12 +31,12 @@ Clock tree: HSE bypass (external clock input) → PLL (M=1, N=20, R=2) → 80 MH
 | Peripheral | Pins | Notes |
 |---|---|---|
 | CAN1 | PA11 RX / PA12 TX (AF9) | Team in-vehicle bus; 500 kbps configured (presc 10, 1+13+2 TQ) ✓ |
-| SPI1 | PB3 SCK / PB4 MISO / PB5 MOSI / PA15 CS (AF5) | Fully configured ✓: 8-bit, 20 MHz, Mode 1 (CPHA=2EDGE), NSS off, TX/RX DMA (DMA1_Ch3/Ch2) |
+| SPI1 | PB3 SCK / PB4 MISO / PB5 MOSI / PC14 CS (software, GPIO) | Fully configured ✓: 8-bit, 5 MHz (presc 16), Mode 1 (CPHA=2EDGE), NSS off, TX/RX DMA (DMA1_Ch3/Ch2). 5 MHz chosen for DOUT timing margin (tp(SCDO)=50 ns worst case) |
 | USART1 | PA9 TX / PA10 RX | 115200 8N1 full duplex |
 | USART2 | PA2 TX (AF7, push-pull, no pull) | Fully configured ✓: WS2812 strip (≤13 LEDs), 2.6667 MBd, TX-only, TX DMA (DMA1_Ch7) |
 | TIM16 CH1N | PB6 = `ADC_CLK` | 8 MHz CLKIN configured (PWM, ARR=9) ✓ |
 | ADC1 | PA1 = IN6 (regular CH6); PA5–PA7 = IN10–IN12 analog | Fully configured ✓: 4-channel scan (CH6/10/11/12), TIM1 CC1 external trigger (≈1.22 kHz), 47.5-cycle sampling |
-| GPIO | PC14 `ADC_NDRDY` in, PC15 `ADC_SYNC` out, PB0 `IND_ROHT` / PB1 `IND_NORM` out | ADS131M04 DRDY/SYNC lines; PB0 = over-temperature LED, PB1 = system-normal LED |
+| GPIO | PA15 `ADC_NDRDY` in (EXTI15), PC14 `ADC_CS` out, PC15 `ADC_SYNC` out, PB0 `IND_ROHT` / PB1 `IND_NORM` out | ADS131M04 DRDY/CS/SYNC lines (CS/DRDY swapped vs schematic — CubeMX is authoritative); PB0 = over-temperature LED, PB1 = system-normal LED |
 
 ### ADS131M04 driver — integration reference
 
@@ -48,4 +48,4 @@ Clock tree: HSE bypass (external clock input) → PLL (M=1, N=20, R=2) → 80 MH
 
 ### Docs
 
-`Docs/` holds the design references (mostly in Chinese): board schematic `SCH_Armor_Sc_EVE_081_2026-08-20.pdf`, the RM 2025 referee system user manual (V1.4), DJI armor module manuals (AM01/AM11 and AM02/AM12), the ADS131M04 datasheet, and the STM32L432 datasheet plus RM0394 reference manual.
+`Docs/` holds the design references (mostly in Chinese): board schematic `SCH_Armor_Sc_EVE_081_2026-08-20.pdf`, the RM 2025 referee system user manual (V1.4), DJI armor module manuals (AM01/AM11 and AM02/AM12), the ADS131M04 datasheet, and the STM32L432 datasheet plus RM0394 reference manual. `Docs/ADS131M04_初始化SPI时序.md` is the frame-by-frame SPI trace of the ADC init sequence (122 frames, with expected MISO responses) — the authoritative reference when debugging or modifying `App/bsp/ads131m04.c`.

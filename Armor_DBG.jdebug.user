@@ -1,0 +1,34 @@
+
+
+OpenDocument="startup_stm32l432xx.s", FilePath="//192.168.191.221/Shuchen's_Documents/Armor_Cmzy26_081/startup_stm32l432xx.s", Line=45
+OpenDocument="main.c", FilePath="//192.168.191.221/Shuchen's_Documents/Armor_Cmzy26_081/Core/Src/main.c", Line=75
+OpenToolbar="Debug", Floating=0, x=0, y=0
+OpenWindow="Source Files", DockArea=LEFT, x=0, y=0, w=818, h=1398, TabPos=0, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=0, w=818, h=1398, TabPos=1, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=1, w=783, h=595, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
+OpenWindow="Timeline", DockArea=RIGHT, x=0, y=0, w=783, h=824, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="1 ns / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="510;0", DataGraphShowNamesAtCursor=0, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="510;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="530;0"
+OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=2736, h=215, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
+TableHeader="Source Files", SortCol="File", SortOrder="ASCENDING", VisibleCols=["File";"Status";"Size";"#Insts";"Path"], ColWidths=[233;100;100;100;1164]
+TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time"], ColWidths=[100;100]
+TableHeader="Data Sampling Setup", SortCol="Min. Change", SortOrder="DESCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[254;100;100;100;100;110;130;150;150]
+TableHeader="Power Sampling", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";"Ch 0"], ColWidths=[100;100;100]
+TableHeader="RegisterSelectionDialog", SortCol="None", SortOrder="ASCENDING", VisibleCols=[], ColWidths=[]
+TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Location";"Refresh"], ColWidths=[232;259;100;227]
+TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[200;196;191;850]
+WatchedExpression="htim2", RefreshRate=2, Window=Watched Data 1
+WatchedExpression="s_state", RefreshRate=2, Window=Watched Data 1
+WatchedExpression="s_effect", RefreshRate=2, Window=Watched Data 1
+WatchedExpression="s_team_color", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_param", RefreshRate=2, Window=Watched Data 1
+WatchedExpression="s_last_mv", RefreshRate=5, Window=Watched Data 1
+WatchedExpression="s_streaming", RefreshRate=2, Window=Watched Data 1
+WatchedExpression="s_dma_busy", RefreshRate=2, Window=Watched Data 1
+WatchedExpression="s_diag", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_chip_id", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_init_ok", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_init_stage", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_reg_init", Window=Watched Data 1
+WatchedExpression="s_fail_addr", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_fail_readback", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="hspi1", RefreshRate=1, Window=Watched Data 1

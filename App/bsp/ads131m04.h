@@ -32,6 +32,7 @@ typedef struct
     uint32_t crc_err;       /* CRC 校验错误（CRC 开启后有效） */
     uint32_t drdy_cnt;      /* DRDY 中断计数 */
     uint32_t drop_cnt;      /* 环形缓冲满而跳帧计数 */
+    uint32_t frames_read;   /* 主循环成功消费的帧数 */
 } ads_diag_t;
 
 /* 初始化：复位 + 全寄存器写入 + 回读校验（6.3），失败置全局故障。 */

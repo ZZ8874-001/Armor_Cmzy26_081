@@ -17,9 +17,9 @@ static uint8_t      s_team_color = 0u;
 
 void LedStatus_Init(void)
 {
-    /* PB0/PB1 置 0 点亮、置 1 灭（灌电流，2.1 节）。初始灭。 */
-    HAL_GPIO_WritePin(IND_ROHT_GPIO_Port, IND_ROHT_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(IND_NORM_GPIO_Port, IND_NORM_Pin, GPIO_PIN_SET);
+    /* PB0/PB1 高电平点亮、低电平灭（硬件实测确认，2026-08-21）。初始灭。 */
+    HAL_GPIO_WritePin(IND_ROHT_GPIO_Port, IND_ROHT_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(IND_NORM_GPIO_Port, IND_NORM_Pin, GPIO_PIN_RESET);
 }
 
 void LedStatus_Tick(void)
