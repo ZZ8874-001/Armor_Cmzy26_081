@@ -50,10 +50,12 @@ typedef struct
     uint16_t temp_over_mv;      /* P19 超温阈值（默认 750mV=窗上限，等效不触发） */
     uint16_t osr;               /* P20 OSR 档位（默认 1024） */
 
-    /* --- 缓冲与上报（P21/P22/P24） --- */
+    /* --- 缓冲与上报（P21/P22/P24/P25） --- */
     uint8_t  ring_depth;        /* P21 环形缓冲深度（默认 32 帧） */
     uint16_t wave_window;       /* P22 触发后窗口（默认 32 样本=8.2ms） */
     uint16_t status_period_ms;  /* P24 状态上报周期（默认 1000ms，仲裁可调） */
+    uint8_t  dif_depth;         /* P25 差分高通深度（默认 16 样本=4.1ms，截止≈39Hz；M2 修订新增） */
+    uint16_t settle_depth;      /* P26 沉降门控深度（默认 16 样本≈4.1ms；不应期后信号连续低于阈值 N 样本才重新武装，抑制机械余振二次计数） */
 } hit_param_t;
 
 /* 取默认参数表（按设计文档 7.4）。 */

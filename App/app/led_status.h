@@ -37,4 +37,7 @@ void LedStatus_SetEffect(led_effect_t effect);
 /* 队伍色设置（P16，ID 设置时确定）。 */
 void LedStatus_SetTeamColor(uint8_t team_color);
 
+/* 亮度设置（P15，0~100%）。 */
+void LedStatus_SetBrightness(uint8_t brightness);
+
 #endif /* APP_LED_STATUS_H */

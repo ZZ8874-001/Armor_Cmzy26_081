@@ -17,7 +17,7 @@ void Cal_GetDefaults(hit_param_t *p)
     p->s_bl           = 13u;
     p->win_len        = 32u;
     p->min_dur        = 4u;
-    p->thr_hit        = 20000;            /* 调试初值，标定后按 19N×K_N×1.2 写入 */
+    p->thr_hit        = 200000;           /* M2 整定：真实击打 >1M、剧烈移动误报低于此档（余量 5 倍）；19N 标定后按 K_N 写入 */
     p->refractory_ms  = 50u;
 
     /* --- 标定与诊断 --- */
@@ -38,7 +38,7 @@ void Cal_GetDefaults(hit_param_t *p)
     /* --- 通信与灯光 --- */
     p->heartbeat_ms   = 50u;              /* 20Hz */
     p->comm_timeout_ms = 200u;            /* 4×心跳 */
-    p->brightness     = 60u;
+    p->brightness     = 100u;             /* P15 亮度：默认 100%，与发射机构 SHOOT 全亮度显示对齐（2026-08-21） */
     p->team_color     = TEAM_COLOR_RED;
 
     /* --- ADC 与开关 --- */
@@ -54,6 +54,8 @@ void Cal_GetDefaults(hit_param_t *p)
     p->ring_depth     = 32u;
     p->wave_window    = 32u;
     p->status_period_ms = 1000u;          /* 默认 1Hz，由裁判系统仲裁确定、可调 */
+    p->dif_depth       = 16u;             /* P25 差分高通深度：16 样本=4.1ms，截止≈39Hz（M2 修订） */
+    p->settle_depth    = 16u;             /* P26 沉降门控：不应期后连续低于阈值 16 样本（4.1ms）才重新武装 */
 }
 
 void Cal_Load(hit_param_t *p)

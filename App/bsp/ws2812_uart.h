@@ -14,10 +14,13 @@
 #include <stdbool.h>
 #include "board.h"
 
-#define WS2812_FRAME_BYTES  ((LED_COUNT) * 8u + 14u)   /* 118B（8B/LED + 14B 复位码） */
+#define WS2812_FRAME_BYTES  ((LED_COUNT) * 12u)          /* 156B（12B/LED；复位由 TXINV 空闲低电平实现） */
 
-/* 初始化（USART2 与 TX DMA 由 CubeMX 配置；PA2 已为推挽 AF_PP）。 */
+/* 初始化（USART2 3.75MBd+TX 反相 与 TX DMA 由 CubeMX 配置；PA2 已为推挽 AF_PP）。 */
 void Ws2812_Init(void);
+
+/* 单灯 RGB → 12 字节编码（GRB 序，MSB 先行，每字节 2 个 WS 位）。 */
+void Ws2812_EncodeLed(uint8_t dst[12], uint8_t r, uint8_t g, uint8_t b);
 
 /* 发送一帧（DMA 后台传输，≈404µs）；返回 0=启动成功，-1=忙。 */
 int  Ws2812_Send(const uint8_t *frame);

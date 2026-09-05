@@ -53,8 +53,10 @@ void App_Init(void)
     TempMon_Init();            /* TODO(Step 5) */
     Ws2812_Init();             /* TODO(Step 3)：发送实现 */
     HitDetect_Init(&s_param);  /* TODO(Step 2)：检测管线 */
-    LedStatus_Init();          /* TODO(Step 3)：灯效生成 */
-    StateMachine_Init();       /* 骨架：BOOT→NORMAL 占位 */
+    LedStatus_Init();          /* Step 3：灯效生成（WS2812 编码 + DMA） */
+    LedStatus_SetTeamColor(s_param.team_color);
+    LedStatus_SetBrightness(s_param.brightness);
+    StateMachine_Init();       /* Step 3：BOOT→NORMAL/HIT/FAULT 基础版 */
     BoardComm_Init();          /* TODO(Step 4)：协议栈实例化 */
 
     /* 启动 1kHz 系统时基（TIM2 更新中断）——CubeMX 只生成 Init 不 Start，必须显式启动；
@@ -75,6 +77,26 @@ void App_Loop(void)
         }
     }
 
+    /* 击打事件输出（Step 3：状态机联动 + 调试日志；P18 bit0 事件使能开关） */
+    if ((s_param.evt_enable & 0x01u) != 0u)
+    {
+        hit_event_t ev;
+        if (HitDetect_GetEvent(&ev))
+        {
+            StateMachine_OnHitEvent(&ev);
+            App_Log_Printf("[HIT] sum_peak=%lu p0=%lu p1=%lu p2=%lu p3=%lu I=%u%%\r\n",
+                           (unsigned long)ev.peak,
+                           (unsigned long)ev.peak_ch[0], (unsigned long)ev.peak_ch[1],
+                           (unsigned long)ev.peak_ch[2], (unsigned long)ev.peak_ch[3],
+                           (unsigned int)ev.intensity);
+        }
+    }
+    else
+    {
+        hit_event_t ev;
+        while (HitDetect_GetEvent(&ev)) { /* 事件关闭时仍取走，避免滞留 */ }
+    }
+
     /* TODO(Step 4)：Transport_Isotp_Poll + Service_RetryAckScheduler_Poll + 心跳/状态入队 */
     BoardComm_Loop();
 }
@@ -88,15 +110,11 @@ void App_OnTick1ms(void)
 
     if ((s_tick_ms % 50u) == 0u)
     {
-        TempMon_Tick();     /* 20Hz 健康评估 + TEMP 窗检（7.5） */
+        TempMon_Tick();     /* 20Hz 健康评估 + TEMP 窗检（7.5，Step 5 桩） */
+        HitDetect_Tick();   /* 20Hz 传感器健康评估（7.5，Step 2） */
     }
 
-    /* 骨架自证：PB1 1Hz 闪烁证明 tick 链路通。
-     * TODO(Step 3)：改为 LedStatus/状态机驱动（PB1=系统正常指示）。 */
-    if ((s_tick_ms % 500u) == 0u)
-    {
-        HAL_GPIO_TogglePin(IND_NORM_GPIO_Port, IND_NORM_Pin);
-    }
+    /* PB1 已移交 LedStatus/状态机驱动（Step 3），骨架闪烁移除 */
 
     /* 诊断：每秒快照 DRDY 速率/错误增量/帧消费速率（Step 1 验证用） */
     if ((s_tick_ms % 1000u) == 0u)

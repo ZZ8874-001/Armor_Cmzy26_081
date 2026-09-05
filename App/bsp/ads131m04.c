@@ -104,8 +104,9 @@ static volatile uint16_t s_frame_status;
 
 /* 自检结果固化（调试器直接 watch，无需串口） */
 static volatile uint32_t s_st_drdy_hz;    /* 实测 DRDY 频率（期望 ≈3906） */
-static volatile int32_t  s_st_mean[4];    /* 4 通道均值 */
-static volatile int32_t  s_st_rms[4];     /* 4 通道 RMS（期望 <50 counts） */
+static volatile int32_t  s_st_mean[4];    /* 4 通道均值 = 直流偏置（随重力/姿态变化属正常） */
+static volatile int32_t  s_st_dc[4];      /* 4 通道直流偏置（s_st_mean 的语义别名，调试用） */
+static volatile int32_t  s_st_rms[4];     /* 4 通道噪声 RMS（去均值后，期望 <100 counts） */
 static volatile uint8_t  s_st_result;     /* 0=通过 1=失败 */
 
 /* 初始化调试 RX 捕获（调试器直接 watch，无需逻辑分析仪）：
@@ -642,7 +643,14 @@ int ADS131M04_RunSelfTest(void)
     for (i = 0u; i < 4u; i++)
     {
         s_st_mean[i] = (int32_t)(sum[i] / (int64_t)n);
-        s_st_rms[i]  = (int32_t)sqrt((double)sqsum[i] / (double)n);
+        s_st_dc[i]   = s_st_mean[i];
+        /* 噪声 RMS 必须先去均值（修正 2026-08-21）：对直流偏置 ~±1M counts 的通道，
+         * 不去均值时 sqrt(Σx²/N)≈|直流值|，根本不是噪声 */
+        {
+            double m = (double)sum[i] / (double)n;
+            double v = (double)sqsum[i] / (double)n - m * m;
+            s_st_rms[i] = (int32_t)sqrt((v > 0.0) ? v : 0.0);
+        }
         App_Log_Printf("[SELFTEST] CH%lu mean=%ld RMS=%ld\r\n",
                        (unsigned long)i, (long)s_st_mean[i], (long)s_st_rms[i]);
     }

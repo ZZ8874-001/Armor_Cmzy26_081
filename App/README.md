@@ -118,6 +118,8 @@ App/
 - 状态机（`app/state_machine.h`）：`SM_STATE_BOOT/NORMAL/HIT/FAULT/COMM_LOST/ID_SETUP/ID_CONFLICT`（《设计方案》第 11 章状态表）。
 - 灯效（`app/led_status.h`）：`LED_EFF_NORMAL/HIT/ID_SETUP/FAULT/COMM_LOST/ID_CONFLICT/BOOT`；频率：快闪 5Hz、慢闪 1Hz、FAULT 红蓝 500ms、ID_CONFLICT 红蓝紫 333ms；帧刷新 20Hz。
 - 指示 LED：**PB0=超温指示、PB1=系统正常指示**（NORMAL/HIT/ID_SETUP 亮；**高电平点亮、低电平灭**——硬件实测确认）。骨架阶段 PB1 由 main_app 1Hz 闪烁自证（Step3 起移交 LedStatus）。
+- 检测调试变量（hit_detect.c）：`s_hit_dif`（实时差分信号）、`s_hit_sum`/`s_hit_bl[4]`（合力/基线）、`s_hit_state`（0=IDLE/1=ARMED/2=FIRING/3=REFRACTORY）、`s_hit_event`/`s_hit_count`/`s_hit_dif_peak`、`s_wave_ready`/`s_wave_frozen_*`（锁帧波形）、`s_hit_faults`。
+- 自检变量（ads131m04.c）：`s_st_dc[4]`（直流偏置，随姿态变化正常）、`s_st_rms[4]`（**去均值后**的真实噪声，期望 <100 counts）。
 
 ## 11. 数据流与缓冲约定
 

@@ -11,6 +11,7 @@
 #define APP_STATE_MACHINE_H
 
 #include <stdint.h>
+#include "detect/hit_detect.h"   /* hit_event_t */
 
 typedef enum
 {
@@ -29,6 +30,9 @@ void StateMachine_Init(void);
 
 /* 1kHz 步进（TIM2 中断调用）：状态转移判定与灯模式切换。 */
 void StateMachine_Tick(void);
+
+/* 击打事件输入（main_app 在检测到事件时调用；FAULT/COMM_LOST 态忽略只计数）。 */
+void StateMachine_OnHitEvent(const hit_event_t *e);
 
 /* 当前状态。 */
 sm_state_t StateMachine_Get(void);

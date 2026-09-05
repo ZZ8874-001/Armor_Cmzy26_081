@@ -66,6 +66,9 @@ void HitDetect_Init(const hit_param_t *p);
 /* 每帧（3.906kHz）喂入：EMA→合力→窗口峰值→阈值/持续判定→不应期。 */
 void HitDetect_Feed(const ads_frame_t *f);
 
+/* 20Hz 健康评估（TIM2 50ms 分频调用，7.5）：饱和/偏置/死通道/SPI 故障。 */
+void HitDetect_Tick(void);
+
 /* 取最新事件（非破坏）；无新事件返回 false。 */
 bool HitDetect_GetEvent(hit_event_t *e);
 
