@@ -36,6 +36,11 @@ static uint32_t s_last_frames;
 static uint32_t s_last_spi_err;
 static uint32_t s_last_drop;
 
+/* ---- 主循环阻塞诊断（DWT 周期计数，1 cycle = 12.5ns @80MHz） ---- */
+static volatile uint32_t s_iter_us;        /* 最近一次 App_Loop 迭代耗时（µs） */
+static volatile uint32_t s_loop_max_us;    /* 1s 窗口内单次迭代最大耗时 */
+static uint32_t s_loop_max_cyc;
+
 /* 最近一帧解析结果（调试器实时观察 ADC 数据用，每 256µs 更新一次） */
 static volatile ads_frame_t s_last_frame;
 
@@ -59,6 +64,11 @@ void App_Init(void)
     StateMachine_Init();       /* Step 3：BOOT→NORMAL/HIT/FAULT 基础版 */
     BoardComm_Init();          /* TODO(Step 4)：协议栈实例化 */
 
+    /* DWT 周期计数器使能（主循环阻塞测量，调试器 halt 期间 CYCCNT 冻结，不影响测量） */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0u;
+    DWT->CTRL  |= DWT_CTRL_CYCCNTENA_Msk;
+
     /* 启动 1kHz 系统时基（TIM2 更新中断）——CubeMX 只生成 Init 不 Start，必须显式启动；
      * 放在全部模块初始化之后，避免首个 tick 命中半初始化模块。 */
     HAL_TIM_Base_Start_IT(&htim2);
@@ -66,6 +76,8 @@ void App_Init(void)
 
 void App_Loop(void)
 {
+    uint32_t cyc0 = DWT->CYCCNT;
+
     /* --- 帧消费 + 检测管线（Step 1/2 起启用） --- */
     if (ADS131M04_IsFrameReady())
     {
@@ -84,6 +96,7 @@ void App_Loop(void)
         if (HitDetect_GetEvent(&ev))
         {
             StateMachine_OnHitEvent(&ev);
+            BoardComm_ReportHitEvent(&ev);   /* Step 4：击打事件经 CAN 上报核心板 */
             App_Log_Printf("[HIT] sum_peak=%lu p0=%lu p1=%lu p2=%lu p3=%lu I=%u%%\r\n",
                            (unsigned long)ev.peak,
                            (unsigned long)ev.peak_ch[0], (unsigned long)ev.peak_ch[1],
@@ -97,8 +110,20 @@ void App_Loop(void)
         while (HitDetect_GetEvent(&ev)) { /* 事件关闭时仍取走，避免滞留 */ }
     }
 
-    /* TODO(Step 4)：Transport_Isotp_Poll + Service_RetryAckScheduler_Poll + 心跳/状态入队 */
     BoardComm_Loop();
+
+    /* 非阻塞日志刷出：每圈 2 字符（≈174µs），帧消费优先、日志其次（2026-08-21） */
+    App_Log_FlushSmall(2u);
+
+    /* 迭代耗时统计（80MHz：1 cycle = 12.5ns） */
+    {
+        uint32_t dt = DWT->CYCCNT - cyc0;   /* uint32 减法天然处理回绕 */
+        s_iter_us = dt / 80u;
+        if (dt > s_loop_max_cyc)
+        {
+            s_loop_max_cyc = dt;
+        }
+    }
 }
 
 void App_OnTick1ms(void)
@@ -129,6 +154,9 @@ void App_OnTick1ms(void)
         s_last_spi_err = d.spi_err;
         s_rate_drop    = d.drop_cnt - s_last_drop;
         s_last_drop    = d.drop_cnt;
+
+        s_loop_max_us  = s_loop_max_cyc / 80u;
+        s_loop_max_cyc = 0u;
     }
 }
 

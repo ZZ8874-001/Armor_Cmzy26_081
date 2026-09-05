@@ -34,6 +34,12 @@ void StateMachine_Tick(void);
 /* 击打事件输入（main_app 在检测到事件时调用；FAULT/COMM_LOST 态忽略只计数）。 */
 void StateMachine_OnHitEvent(const hit_event_t *e);
 
+/* 心跳丢失/恢复（board_comm 心跳超时跟踪调用，Step 4）。 */
+void StateMachine_OnCommLost(bool lost);
+
+/* ID 设置/冲突（下行命令调用，Step 4；1s 后自动回 NORMAL）。 */
+void StateMachine_OnIdSet(bool conflict);
+
 /* 当前状态。 */
 sm_state_t StateMachine_Get(void);
 

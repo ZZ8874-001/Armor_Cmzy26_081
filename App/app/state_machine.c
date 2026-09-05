@@ -70,13 +70,60 @@ void StateMachine_Tick(void)
         }
         break;
 
-    /* TODO(Step 4)：COMM_LOST（心跳超时）/ ID_SETUP / ID_CONFLICT（下行命令） */
     case SM_STATE_COMM_LOST:
+        /* 保持紫常亮；恢复由 OnCommLost(false) 驱动 */
+        break;
+
     case SM_STATE_ID_SETUP:
     case SM_STATE_ID_CONFLICT:
+        /* 1s 显示后自动回 NORMAL */
+        if (s_state_ms >= 1000u)
+        {
+            s_state = SM_STATE_NORMAL;
+            s_state_ms = 0u;
+            LedStatus_SetEffect(LED_EFF_NORMAL);
+        }
+        break;
+
     default:
         break;
     }
+}
+
+void StateMachine_OnCommLost(bool lost)
+{
+    if (lost)
+    {
+        if (s_state != SM_STATE_FAULT)
+        {
+            s_state = SM_STATE_COMM_LOST;
+            s_state_ms = 0u;
+            LedStatus_SetEffect(LED_EFF_COMM_LOST);
+        }
+    }
+    else
+    {
+        if (s_state == SM_STATE_COMM_LOST)
+        {
+            s_state = SM_STATE_NORMAL;
+            s_state_ms = 0u;
+            LedStatus_SetEffect(LED_EFF_NORMAL);
+        }
+    }
+}
+
+void StateMachine_OnIdSet(bool conflict)
+{
+    if (conflict)
+    {
+        s_state = SM_STATE_ID_CONFLICT;
+    }
+    else
+    {
+        s_state = SM_STATE_ID_SETUP;
+    }
+    s_state_ms = 0u;
+    LedStatus_SetEffect(conflict ? LED_EFF_ID_CONFLICT : LED_EFF_ID_SETUP);
 }
 
 void StateMachine_OnHitEvent(const hit_event_t *e)

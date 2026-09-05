@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdarg.h>
+#include <stdint.h>
 
 /* 日志适配层。
  * 说明：
@@ -17,8 +18,11 @@ extern "C" {
 /* 初始化日志输出模块。 */
 void App_Log_Init(void);
 
-/* printf 风格日志输出。 */
+/* printf 风格日志输出（非阻塞：写入环形缓冲，由 FlushSmall 刷出）。 */
 void App_Log_Printf(const char *fmt, ...);
+
+/* 主循环调用：向 USART1 刷 n 个字符（每字符 87µs@115200，帧消费后调用）。 */
+void App_Log_FlushSmall(uint8_t n);
 
 /* va_list 版本日志输出。 */
 void App_Log_VPrintf(const char *fmt, va_list args);

@@ -96,6 +96,9 @@ void App_Can_SetRxCallback(AppCanRxCallback callback);
 /* 获取某个 CAN 口的诊断信息。 */
 void App_Can_GetDiag(AppCanPort port, AppCanDiag *diag);
 
+/* 主循环调用：执行 Bus-Off 恢复（ISR 置标志，主循环 Stop/Start，2026-08-21）。 */
+void App_Can_RecoverBusOff(void);
+
 /* 将 LEC 错误码转为字符串。 */
 const char *App_Can_LastErrorToString(uint8_t lec);
 
