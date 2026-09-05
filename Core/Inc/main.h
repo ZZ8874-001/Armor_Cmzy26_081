@@ -59,8 +59,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define ADC_NDRDY_Pin GPIO_PIN_14
-#define ADC_NDRDY_GPIO_Port GPIOC
+#define ADC_CS_Pin GPIO_PIN_14
+#define ADC_CS_GPIO_Port GPIOC
 #define ADC_SYNC_Pin GPIO_PIN_15
 #define ADC_SYNC_GPIO_Port GPIOC
 #define PA3_NC_Pin GPIO_PIN_3
@@ -79,6 +79,9 @@ void Error_Handler(void);
 #define IND_NORM_GPIO_Port GPIOB
 #define PA8_NC_Pin GPIO_PIN_8
 #define PA8_NC_GPIO_Port GPIOA
+#define ADC_NDRDY_Pin GPIO_PIN_15
+#define ADC_NDRDY_GPIO_Port GPIOA
+#define ADC_NDRDY_EXTI_IRQn EXTI15_10_IRQn
 #define ADC_CLK_Pin GPIO_PIN_6
 #define ADC_CLK_GPIO_Port GPIOB
 #define PB7_NC_Pin GPIO_PIN_7
