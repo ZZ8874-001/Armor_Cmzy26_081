@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "STM32L432KB: Debug with J-Link",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "jlink",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/Armor_Cmzy26_081.elf",
+      "device": "STM32L432KB",
+      "interface": "swd",
+      "speed": 4000,
+      "runToEntryPoint": "main",
+      "preLaunchTask": "STM32: Build",
+      "serverpath": "C:/Program Files/JLink_V960/JLinkGDBServerCL.exe",
+      "armToolchainPath": "E:/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin",
+      "gdbPath": "E:/STM32CubeCLT_1.21.0/GNU-tools-for-STM32/bin/arm-none-eabi-gdb.exe"
+    }
+  ]
+}

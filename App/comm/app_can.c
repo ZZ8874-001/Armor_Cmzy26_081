@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
  * @file    app_can.c
- * @brief   CAN 适配层（L432 绑定，接口见 app_can.h —— 拷贝自 isotp 栈，平台无关）。
+ * @brief   CAN 适配层（L432 绑定，接口见 app_can.h）。
  *
  * 设计文档 v1.5 第 9.2 节：单 CAN1、500kbps（CubeMX 已配）、FIFO0 排空中断、
  * TX 邮箱等待（timeout 5ms 硬限）、NART=1 禁自动重传（死总线阻塞根治）、
@@ -16,21 +16,20 @@
 
 static AppCanRxCallback s_rx_callback = NULL;
 static volatile AppCanDiag s_diag;
-static volatile uint32_t s_tx_mailbox_robin;   /* 发送邮箱轮转（0/1/2） */
 static volatile uint8_t  s_busoff_recover;     /* Bus-Off 恢复请求标志（ISR 置位，主循环处理） */
 
 AppCanStatus App_Can_Init(void)
 {
     CAN_FilterTypeDef filter = {0};
 
-    /* 滤波器 bank0：全接收（协议为应用层路由，9.2） */
+    /* 滤波器 bank0：接收本板协议范围 0x100~0x17F 的标准数据帧。 */
     filter.FilterActivation      = CAN_FILTER_ENABLE;
     filter.FilterBank            = 0u;
     filter.FilterFIFOAssignment  = CAN_FILTER_FIFO0;
-    filter.FilterIdHigh          = 0x0000u;
+    filter.FilterIdHigh          = 0x2000u; /* 0x100 << 5 */
     filter.FilterIdLow           = 0x0000u;
-    filter.FilterMaskIdHigh      = 0x0000u;
-    filter.FilterMaskIdLow       = 0x0000u;
+    filter.FilterMaskIdHigh      = 0xF000u; /* 0x780 << 5 */
+    filter.FilterMaskIdLow       = 0x0006u; /* IDE=0（标准帧），RTR=0（数据帧） */
     filter.FilterMode            = CAN_FILTERMODE_IDMASK;
     filter.FilterScale           = CAN_FILTERSCALE_32BIT;
     filter.SlaveStartFilterBank  = 0u;
@@ -43,7 +42,7 @@ AppCanStatus App_Can_Init(void)
      * CubeMX 的 AutoRetransmission=ENABLE 使死总线上发送帧永不完成（RQCP 不来），
      * 每次发送阻塞满 5ms 硬限；心跳+状态同迭代对齐时叠成 10ms > ADS 环形 8.2ms → 跳帧。
      * NART=1 后失败帧 ~250µs 即完成（RQCP 置位、TXOK=0），阻塞归零；
-     * 丢帧由协议层兜底（ISO-TP ACK 重试 3×200ms / 20Hz 心跳下一拍自愈）。
+     * 固定帧协议通过事件队列重试实现瞬时发送失败后的恢复。
      * NART 位仅在初始化模式下可写：INRQ→等 INAK→写位→清 INRQ（带超时防挂死）。 */
     {
         uint32_t t0 = HAL_GetTick();
@@ -84,7 +83,9 @@ AppCanStatus App_Can_Send(AppCanPort port, const AppCanFrame *frame, uint32_t ti
 {
     CAN_TxHeaderTypeDef txh = {0};
     uint32_t t0;
-    uint32_t mailbox;
+    uint32_t mailbox_mask;
+    uint32_t mailbox_rqcp;
+    uint32_t mailbox_txok;
 
     if (port >= APP_CAN_PORT_COUNT || frame == NULL || timeout_ms == 0u)
     {
@@ -121,15 +122,31 @@ AppCanStatus App_Can_Send(AppCanPort port, const AppCanFrame *frame, uint32_t ti
         }
     }
 
-    /* 邮箱轮转，避免 HAL 自动选择时的重入问题 */
-    mailbox = s_tx_mailbox_robin;
-    s_tx_mailbox_robin = (s_tx_mailbox_robin + 1u) % 3u;
+    /* 清除已完成邮箱的残留结果。HAL 会自行选取空闲邮箱，并通过 mailbox_mask
+     * 返回 CAN_TX_MAILBOXn 位掩码，不能把该返回值当作邮箱序号使用。 */
+    hcan1.Instance->TSR = CAN_TSR_RQCP0 | CAN_TSR_RQCP1 | CAN_TSR_RQCP2;
+    if (HAL_CAN_AddTxMessage(&hcan1, &txh, (uint8_t *)frame->data, &mailbox_mask) != HAL_OK)
+    {
+        s_diag.tx_fail_count++;
+        return APP_CAN_STATUS_ERROR;
+    }
 
-    /* 预清该邮箱完成标志（写1清零）：NART=1 下失败帧也置 RQCP，
-     * 上次传输的残留标志会造成假完成/假成败（2026-09-05） */
-    hcan1.Instance->TSR = (uint32_t)(CAN_TSR_RQCP0 | CAN_TSR_TXOK0 | CAN_TSR_TERR0) << mailbox;
-
-    if (HAL_CAN_AddTxMessage(&hcan1, &txh, (uint8_t *)frame->data, &mailbox) != HAL_OK)
+    if (mailbox_mask == CAN_TX_MAILBOX0)
+    {
+        mailbox_rqcp = CAN_TSR_RQCP0;
+        mailbox_txok = CAN_TSR_TXOK0;
+    }
+    else if (mailbox_mask == CAN_TX_MAILBOX1)
+    {
+        mailbox_rqcp = CAN_TSR_RQCP1;
+        mailbox_txok = CAN_TSR_TXOK1;
+    }
+    else if (mailbox_mask == CAN_TX_MAILBOX2)
+    {
+        mailbox_rqcp = CAN_TSR_RQCP2;
+        mailbox_txok = CAN_TSR_TXOK2;
+    }
+    else
     {
         s_diag.tx_fail_count++;
         return APP_CAN_STATUS_ERROR;
@@ -137,7 +154,7 @@ AppCanStatus App_Can_Send(AppCanPort port, const AppCanFrame *frame, uint32_t ti
 
     /* 等该邮箱请求完成位（RQCP）；等待期间若进入 Bus-Off 立即放弃 */
     t0 = HAL_GetTick();
-    while ((hcan1.Instance->TSR & (CAN_TSR_RQCP0 << mailbox)) == 0u)
+    while ((hcan1.Instance->TSR & mailbox_rqcp) == 0u)
     {
         if ((hcan1.Instance->ESR & CAN_ESR_BOFF) != 0u)
         {
@@ -152,13 +169,13 @@ AppCanStatus App_Can_Send(AppCanPort port, const AppCanFrame *frame, uint32_t ti
     }
 
     /* NART=1 下失败帧（ACK 错误/仲裁丢失）也会置 RQCP——以 TXOK 判真实成败 */
-    if ((hcan1.Instance->TSR & (CAN_TSR_TXOK0 << mailbox)) == 0u)
+    if ((hcan1.Instance->TSR & mailbox_txok) == 0u)
     {
-        hcan1.Instance->TSR = CAN_TSR_RQCP0 << mailbox;   /* 清完成标志 */
+        hcan1.Instance->TSR = mailbox_rqcp;   /* 清完成标志 */
         s_diag.tx_fail_count++;
         return APP_CAN_STATUS_ERROR;
     }
-    hcan1.Instance->TSR = CAN_TSR_RQCP0 << mailbox;
+    hcan1.Instance->TSR = mailbox_rqcp;
     s_diag.tx_ok_count++;
     return APP_CAN_STATUS_OK;
 }
