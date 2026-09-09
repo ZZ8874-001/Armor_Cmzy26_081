@@ -32,7 +32,6 @@ void OnProjectLoad (void) {
   //
   // User settings
   //
-  Edit.SysVar (VAR_HSS_SPEED, BP_STATE_OFF);
   File.Open ("$(ProjectDir)/build/Armor_Cmzy26_081.elf");
 }
 
