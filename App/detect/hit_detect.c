@@ -90,6 +90,7 @@ static uint32_t s_sat_cnt[4];
 static uint32_t s_off_cnt[4];
 static uint32_t s_dead_tick_cnt[4];
 static uint32_t s_spi_err_last;
+static uint32_t s_drdy_last;      /* DRDY 停滞检测快照（7.5，50ms 窗口增量） */
 static uint32_t s_fault_tick;
 
 /* ==================== 内部函数 ==================== */
@@ -346,6 +347,7 @@ void HitDetect_Init(const hit_param_t *p)
         ads_diag_t d;
         ADS131M04_GetDiag(&d);
         s_spi_err_last = d.spi_err;
+        s_drdy_last    = d.drdy_cnt;
     }
 }
 
@@ -506,13 +508,23 @@ void HitDetect_Tick(void)
         if (s_dead_tick_cnt[i] >= 100u)                     { new_faults |= (uint16_t)(FAULT_CH0_DEAD << i); }
     }
 
-    /* 3) SPI 故障：诊断错误增量 */
+    /* 3) SPI/DRDY 故障（7.5）：诊断错误增量 + DRDY 停滞（间隔>P12 持续 50ms） */
     {
         ads_diag_t d;
+        uint32_t drdy_delta;
         ADS131M04_GetDiag(&d);
         if (d.spi_err != s_spi_err_last)
         {
             s_spi_err_last = d.spi_err;
+            new_faults |= FAULT_SPI;
+        }
+        /* 50ms 窗口 DRDY 增量：正常 ≈195（3906×0.05）；< 50/P12 判停滞
+         * （默认 P12=3ms → 阈值 16）。ADC 初始化失败时增量为 0，live 侧
+         * 也由此兜底置 FAULT_SPI（sticky 由 main_app 置，见 app/faults.h）。 */
+        drdy_delta = d.drdy_cnt - s_drdy_last;
+        s_drdy_last = d.drdy_cnt;
+        if (s_p.drdy_timeout_ms != 0u && drdy_delta < (50u / s_p.drdy_timeout_ms))
+        {
             new_faults |= FAULT_SPI;
         }
     }
@@ -525,6 +537,9 @@ void HitDetect_Tick(void)
         s_fault_tick = 0u;
         s_hit_faults &= new_faults;
     }
+
+    /* 5) 发布到统一故障注册表（live 域）——状态机/灯/上报只读 Fault_GetBitmap() */
+    Fault_UpdateLive(FAULT_MASK_HITDETECT, (uint16_t)s_hit_faults);
 }
 
 int HitDetect_CalibratePolarity(void)

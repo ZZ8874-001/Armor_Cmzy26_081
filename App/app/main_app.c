@@ -21,6 +21,8 @@
 #include "comm/board_comm.h"
 #include "app/state_machine.h"
 #include "app/led_status.h"
+#include "app/faults.h"
+#include "app/self_test.h"
 
 /* ---- 运行参数（Step 5 起从 Flash 载入标定值） ---- */
 static hit_param_t s_param;
@@ -52,17 +54,31 @@ void App_Init(void)
     App_Log_Init();
     App_Log_Printf("\r\nApp skeleton OK (v0.1)\r\n");
 
+    Fault_Init();              /* 故障注册表 + PVD（FAULT_POWER 通路），先于故障源初始化 */
     App_Can_Init();            /* CAN 启动 + 通知使能（Step 4 补齐发送/分发） */
-    ADS131M04_Init();          /* Step 1：复位 + 全寄存器写入 + 回读校验 + 方案 A 读取链 */
-    ADS131M04_RunSelfTest();   /* Step 1：M1 验证（回读值/DRDY 频率/噪声 RMS 打印）——TODO(Step 2) 并入统一自检流程 */
-    TempMon_Init();            /* TODO(Step 5) */
+    ADS131M04_Init();          /* Step 1：复位 + 只读回验证（6.3）+ 方案 A 读取链 */
+    if (!ADS131M04_IsInitOk())
+    {
+        /* 初始化失败 → sticky FAULT_SPI（仅自检通过/复位可清；live 侧由 DRDY 停滞检测兜底） */
+        Fault_SetSticky(FAULT_SPI);
+        App_Log_Printf("[ADS] init FAIL -> FAULT_SPI sticky\r\n");
+    }
+    TempMon_Init(&s_param);    /* Step 5：TIM1 触发链 + ADC1 DMA circular 启动 */
     Ws2812_Init();             /* TODO(Step 3)：发送实现 */
     HitDetect_Init(&s_param);  /* TODO(Step 2)：检测管线 */
     LedStatus_Init();          /* Step 3：灯效生成（WS2812 编码 + DMA） */
     LedStatus_SetTeamColor(s_param.team_color);
     LedStatus_SetBrightness(s_param.brightness);
     StateMachine_Init();       /* Step 3：BOOT→NORMAL/HIT/FAULT 基础版 */
-    BoardComm_Init();          /* TODO(Step 4)：协议栈实例化 */
+    BoardComm_Init();          /* Step 4：协议栈实例化 */
+
+    /* 上电自检（7.6）：非阻塞，结果经 STATUS_REPORT 上报；
+     * ADC 初始化失败时不发起（sticky FAULT_SPI 已直接进入 FAULT 链路）。 */
+    SelfTest_Init(&s_param);
+    if (ADS131M04_IsInitOk())
+    {
+        (void)SelfTest_Request();
+    }
 
     /* DWT 周期计数器使能（主循环阻塞测量，调试器 halt 期间 CYCCNT 冻结，不影响测量） */
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -78,8 +94,11 @@ void App_Loop(void)
 {
     uint32_t cyc0 = DWT->CYCCNT;
 
-    /* --- 帧消费 + 检测管线（Step 1/2 起启用） --- */
-    if (ADS131M04_IsFrameReady())
+    /* --- 自检步进（IDLE 立即返回）；运行期间自检独占帧消费 --- */
+    SelfTest_Poll();
+
+    /* --- 帧消费 + 检测管线（Step 1/2 起启用；自检运行期由 SelfTest_Poll 消费并喂管线） --- */
+    if (!SelfTest_IsRunning() && ADS131M04_IsFrameReady())
     {
         ads_frame_t frame;
         if (ADS131M04_ReadFrame(&frame) == 0)

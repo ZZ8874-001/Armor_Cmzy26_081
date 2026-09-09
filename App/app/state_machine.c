@@ -3,16 +3,17 @@
  * @file    state_machine.c
  * @brief   模块状态机实现（TIM2 1kHz 中断驱动，设计文档 v1.5 第 11 章）。
  *
- * Step 3 基础版：BOOT / NORMAL / HIT / FAULT 四态已实现；
- * COMM_LOST / ID_SETUP / ID_CONFLICT 待 Step 4（通信）接入后落地。
+ * 七状态：BOOT / NORMAL / HIT / FAULT / COMM_LOST / ID_SETUP / ID_CONFLICT。
  * 转移条件：
  *   BOOT   300ms 自检白灯 → NORMAL
  *   NORMAL 击打事件（StateMachine_OnHitEvent）→ HIT（快闪 300ms 后回 NORMAL）
- *   任一态 HitDetect 故障位非零 → FAULT；故障清除 → NORMAL
+ *   任一态 Fault_GetBitmap() 非零 → FAULT（故障优先，≤1ms 响应）；清零 → NORMAL
+ *   COMM_LOST/ID_* 由通信事件进出（board_comm 驱动）
  ******************************************************************************
  */
 #include "app/state_machine.h"
 #include "app/led_status.h"
+#include "app/faults.h"
 #include "detect/hit_detect.h"
 
 #define SM_BOOT_MS   300u    /* BOOT 白灯时长 */
@@ -20,6 +21,14 @@
 
 static volatile sm_state_t s_state = SM_STATE_BOOT;
 static volatile uint32_t   s_state_ms;   /* 当前状态已驻留 ms 数（1kHz 累计） */
+
+/* 进入 FAULT（故障灯效由 led_status 按 Fault_GetBitmap 分类生成） */
+static void Sm_ToFault(void)
+{
+    s_state = SM_STATE_FAULT;
+    s_state_ms = 0u;
+    LedStatus_SetEffect(LED_EFF_FAULT);
+}
 
 void StateMachine_Init(void)
 {
@@ -44,16 +53,19 @@ void StateMachine_Tick(void)
         break;
 
     case SM_STATE_NORMAL:
-        if (HitDetect_GetFaultFlags() != 0u)
+        if (Fault_GetBitmap() != 0u)
         {
-            s_state = SM_STATE_FAULT;
-            s_state_ms = 0u;
-            LedStatus_SetEffect(LED_EFF_FAULT);
+            Sm_ToFault();
         }
         break;
 
     case SM_STATE_HIT:
-        if (s_state_ms >= SM_HIT_MS)
+        /* 故障优先：受击闪灯期间新故障 ≤1ms 内转入 FAULT */
+        if (Fault_GetBitmap() != 0u)
+        {
+            Sm_ToFault();
+        }
+        else if (s_state_ms >= SM_HIT_MS)
         {
             s_state = SM_STATE_NORMAL;
             s_state_ms = 0u;
@@ -62,7 +74,7 @@ void StateMachine_Tick(void)
         break;
 
     case SM_STATE_FAULT:
-        if (HitDetect_GetFaultFlags() == 0u)
+        if (Fault_GetBitmap() == 0u)
         {
             s_state = SM_STATE_NORMAL;
             s_state_ms = 0u;
@@ -71,13 +83,20 @@ void StateMachine_Tick(void)
         break;
 
     case SM_STATE_COMM_LOST:
-        /* 保持紫常亮；恢复由 OnCommLost(false) 驱动 */
+        /* 故障优先于通信状态；无故障保持紫常亮（恢复由 OnCommLost(false) 驱动） */
+        if (Fault_GetBitmap() != 0u)
+        {
+            Sm_ToFault();
+        }
         break;
 
     case SM_STATE_ID_SETUP:
     case SM_STATE_ID_CONFLICT:
-        /* 1s 显示后自动回 NORMAL */
-        if (s_state_ms >= 1000u)
+        if (Fault_GetBitmap() != 0u)
+        {
+            Sm_ToFault();
+        }
+        else if (s_state_ms >= 1000u)   /* 1s 显示后自动回 NORMAL */
         {
             s_state = SM_STATE_NORMAL;
             s_state_ms = 0u;

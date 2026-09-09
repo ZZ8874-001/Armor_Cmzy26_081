@@ -19,6 +19,8 @@ App/comm/service/dispatcher.c \
 App/comm/service/retry_ack_scheduler.c \
 App/app/state_machine.c \
 App/app/led_status.c \
+App/app/faults.c \
+App/app/self_test.c \
 App/app/main_app.c
 
 C_SOURCES += $(APP_SOURCES)

@@ -15,23 +15,7 @@
 #include <stdbool.h>
 #include "bsp/ads131m04.h"
 #include "detect/calibration.h"
-
-/* 故障位图（与 TempMon 故障位合并上报，7.5） */
-#define FAULT_CH0_SAT     (1u << 0)
-#define FAULT_CH1_SAT     (1u << 1)
-#define FAULT_CH2_SAT     (1u << 2)
-#define FAULT_CH3_SAT     (1u << 3)
-#define FAULT_CH0_OFFSET  (1u << 4)
-#define FAULT_CH1_OFFSET  (1u << 5)
-#define FAULT_CH2_OFFSET  (1u << 6)
-#define FAULT_CH3_OFFSET  (1u << 7)
-#define FAULT_CH0_DEAD    (1u << 8)
-#define FAULT_CH1_DEAD    (1u << 9)
-#define FAULT_CH2_DEAD    (1u << 10)
-#define FAULT_CH3_DEAD    (1u << 11)
-#define FAULT_SPI         (1u << 12)
-#define FAULT_POWER       (1u << 13)   /* PVD 触发 */
-#define FAULT_DAC         (1u << 14)   /* DAC 注入自检失效 */
+#include "app/faults.h"    /* 统一故障位图（FAULT_*，7.5） */
 
 /* 击打事件（7.3）：合力判定、四通道峰值分布、预留反推字段 */
 typedef struct

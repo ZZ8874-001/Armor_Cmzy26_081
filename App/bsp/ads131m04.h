@@ -35,8 +35,11 @@ typedef struct
     uint32_t frames_read;   /* 主循环成功消费的帧数 */
 } ads_diag_t;
 
-/* 初始化：复位 + 全寄存器写入 + 回读校验（6.3），失败置全局故障。 */
+/* 初始化：复位 + 只读回验证（6.3，REVID=0x05 适配），失败置全局故障。 */
 void ADS131M04_Init(void);
+
+/* 初始化结果：0=失败（main_app 据此置 sticky FAULT_SPI，见 app/faults.h）。 */
+bool ADS131M04_IsInitOk(void);
 
 /* 消费 DMA 就绪帧（K 帧环形缓冲按读指针取）；0=OK，-1=无帧。 */
 int  ADS131M04_ReadFrame(ads_frame_t *f);

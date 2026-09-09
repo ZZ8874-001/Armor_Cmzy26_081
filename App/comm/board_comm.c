@@ -23,9 +23,12 @@
 #include "comm/transport/isotp.h"
 #include "app/led_status.h"
 #include "app/state_machine.h"
+#include "app/faults.h"
+#include "app/self_test.h"
 #include "detect/calibration.h"
 #include "detect/hit_detect.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* ==================== 实例 ==================== */
@@ -45,6 +48,12 @@ static hit_param_t s_param;                 /* 参数副本（P14/P24） */
 static uint16_t s_module_uid;               /* MCU UID 低 2 字节 */
 static uint32_t s_hb_pause_until;           /* 连续发送失败后的心跳退避截止时刻 */
 static uint32_t s_send_fail_streak;         /* 连续发送失败计数 */
+
+/* 状态上报沿检测（9.4：状态变化 + 周期上报） */
+static uint16_t s_last_faults_reported;     /* 上次上报的故障位图 */
+static sm_state_t s_last_state_reported;    /* 上次上报的状态 */
+static uint32_t s_last_edge_ms;             /* 上次沿上报时刻（≥100ms 节流） */
+static uint32_t s_last_st_ms;               /* 上次自检触发时刻（PVD 5s 自动重试用） */
 
 /* ---- BoardComm_Loop 阻塞诊断（DWT 周期计数，1 cycle = 12.5ns @80MHz） ---- */
 static volatile uint32_t s_bcloop_us;       /* 最近一次 BoardComm_Loop 耗时（µs） */
@@ -239,8 +248,16 @@ static bool Bc_HandleCtrlCmd(void *user_arg, AppCanPort port, const ProtocolAppF
         break;
 
     case CMD_SELF_TEST:
-        /* TODO(Step 5)：触发完整自检流程并上报 */
-        BoardComm_ReportStatus(HitDetect_GetFaultFlags());
+        /* 非阻塞自检：结果经 STATUS_REPORT（TLV_TEXT 携带 ST OK/FAIL）回报；
+         * 运行中重复触发忽略（ACK 仍回）。 */
+        if (SelfTest_Request())
+        {
+            App_Log_Printf("[SELFTEST] requested via CAN\r\n");
+        }
+        else
+        {
+            App_Log_Printf("[SELFTEST] busy, request ignored\r\n");
+        }
         break;
 
     case CMD_ZERO_CAL:
@@ -288,8 +305,8 @@ static bool Bc_SendHeartbeat(void)
     return true;
 }
 
-/* 状态上报（0x02，TLV_STATE 字符串 + 故障位图，seq=0） */
-void BoardComm_ReportStatus(uint16_t fault_flags)
+/* 状态上报（0x02，TLV_STATE + TLV_FAULT_FLAGS + 可选 TLV_TEXT，seq=0） */
+static void Bc_ReportStatusEx(uint16_t fault_flags, const char *text)
 {
     ProtocolAppFrame f;
     ProtocolTlvWriter w;
@@ -310,6 +327,10 @@ void BoardComm_ReportStatus(uint16_t fault_flags)
     Protocol_TlvWriter_Init(&w, buf, sizeof(buf));
     Protocol_TlvWriter_AppendString(&w, PROTOCOL_TLV_STATE, state);
     Protocol_TlvWriter_AppendU16(&w, TLV_FAULT_FLAGS, fault_flags);
+    if (text != NULL)
+    {
+        Protocol_TlvWriter_AppendString(&w, PROTOCOL_TLV_TEXT, text);
+    }
 
     Protocol_AppFrame_Init(&f, BOARD_DST_ID, BOARD_SRC_ID, s_module_uid,
                            FUNC_STATUS_REPORT, 0u, PROTOCOL_TYPE_TLV_STREAM);
@@ -322,6 +343,12 @@ void BoardComm_ReportStatus(uint16_t fault_flags)
             s_sent_count++;
         }
     }
+}
+
+/* 状态上报（无文本；故障位图调用方传 Fault_GetBitmap()） */
+void BoardComm_ReportStatus(uint16_t fault_flags)
+{
+    Bc_ReportStatusEx(fault_flags, NULL);
 }
 
 /* 击打事件（0x31，TLV 流，seq=0 禁止重试） */
@@ -399,6 +426,11 @@ void BoardComm_Init(void)
     /* 状态上报网格错开心跳网格 25ms：避免两者同迭代对齐时两次 5ms 发送阻塞
      * 叠加成 10ms（超过 ADS 环形 8.2ms → 跳帧），错开后单次迭代最长阻塞 5ms < 环容量。 */
     s_last_status_tx_ms = 25u;
+    /* 沿检测初值：故障位图初值 0——启动即有故障（如 ADC init 失败）时立即沿上报 */
+    s_last_faults_reported = 0u;
+    s_last_state_reported  = SM_STATE_BOOT;
+    s_last_edge_ms = 0u;
+    s_last_st_ms   = HAL_GetTick();   /* PVD 自动重试最早在 5s 后 */
 }
 
 void BoardComm_Loop(void)
@@ -438,7 +470,71 @@ void BoardComm_Loop(void)
     if ((now - s_last_status_tx_ms) >= s_param.status_period_ms)
     {
         s_last_status_tx_ms = now;
-        BoardComm_ReportStatus(HitDetect_GetFaultFlags());
+        BoardComm_ReportStatus(Fault_GetBitmap());
+    }
+
+    /* 故障/状态变化沿即时上报（9.4：状态变化 + 周期）：
+     * - 故障位图变化（覆盖 FAULT 进出与故障类别切换）
+     * - 状态进入 FAULT/COMM_LOST（COMM_LOST 无位图变化）
+     * HIT/ID 闪灯态不即报（防 20Hz 击打刷屏），只记录跟随 1Hz 周期。 */
+    {
+        uint16_t faults_now = Fault_GetBitmap();
+        sm_state_t state_now = StateMachine_Get();
+        bool edge = false;
+
+        if (faults_now != s_last_faults_reported)
+        {
+            s_last_faults_reported = faults_now;
+            edge = true;
+        }
+        if (state_now != s_last_state_reported)
+        {
+            if (state_now == SM_STATE_FAULT || state_now == SM_STATE_COMM_LOST)
+            {
+                edge = true;
+            }
+            s_last_state_reported = state_now;
+        }
+        if (edge && ((int32_t)(now - s_last_edge_ms) >= 100))
+        {
+            s_last_edge_ms = now;
+            BoardComm_ReportStatus(faults_now);
+            s_last_status_tx_ms = now;   /* 抑制 1Hz 周期紧接的重复上报 */
+        }
+    }
+
+    /* 自检完成 → STATUS_REPORT（TLV_TEXT 携带结果）；先同步沿基线防重复 */
+    {
+        self_test_t r;
+        if (SelfTest_TakeResult(&r))
+        {
+            char text[48];
+            if (r.overall == ST_RESULT_PASS)
+            {
+                snprintf(text, sizeof(text), "ST OK d=%lu",
+                         (unsigned long)r.drdy_hz);
+            }
+            else
+            {
+                snprintf(text, sizeof(text), "ST FAIL bits=0x%02X d=%lu",
+                         (unsigned int)r.fails, (unsigned long)r.drdy_hz);
+            }
+            s_last_faults_reported = Fault_GetBitmap();   /* 清 sticky 导致的位图变化不另发沿 */
+            Bc_ReportStatusEx(Fault_GetBitmap(), text);
+            s_last_status_tx_ms = now;
+        }
+    }
+
+    /* PVD 欠压自动重试（11 章"FAULT 每 5s 自动重试自检"，仅对可自愈的
+     * brownout；ADC init 失败的 sticky SPI 永不自愈，不触发避免空转） */
+    if (StateMachine_Get() == SM_STATE_FAULT &&
+        (Fault_GetSticky() & FAULT_POWER) != 0u &&
+        !SelfTest_IsRunning() &&
+        (int32_t)(now - s_last_st_ms) >= 5000)
+    {
+        s_last_st_ms = now;
+        (void)SelfTest_Request();
+        App_Log_Printf("[SELFTEST] auto-retry after PVD\r\n");
     }
 
     /* 心跳超时跟踪（P14=200ms）→ COMM_LOST */

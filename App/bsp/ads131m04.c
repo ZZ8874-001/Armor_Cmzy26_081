@@ -5,8 +5,9 @@
  *
  * 实现要点：
  *  - CLKIN：TIM16 CH1N PWM 8.0MHz（HR 模式跑满），HAL_TIMEx_PWMN_Start 启动；
- *  - 初始化序列 6.3：PC15 复位脉冲 → 等 DRDY 上升沿 → UNLOCK → 全部可写寄存器
- *    显式写入 → RREG 回读校验 → MODE 清 RESET 标志（0410h）→ LOCK；
+ *  - 初始化序列 6.3：PC15 复位脉冲 → 自愈盲发序列（UNLOCK/NULL/RESET/NULL）
+ *    → 等 DRDY 上升沿 → UNLOCK → 探针回读校验（ID/MODE/CLOCK）→ 开流采集；
+ *    （REVID=0x05 适配：只读回验证、不写任何寄存器）
  *  - 帧读取方案 A（6.4）：DRDY（ADC_NDRDY）下降沿 EXTI → 拉低 CS、启动 SPI TX+RX DMA
  *    （TX=静态 18B NULL）→ DMA 完成拉高 CS、槽标记满 → 主循环按读指针消费；
  *    K=32 帧环形缓冲（写指针仅 ISR 改、读指针仅主循环改、槽状态标志）；
@@ -87,7 +88,7 @@ static uint8_t s_tx_null[ADS_FRAME_BYTES];   /* 静态 NULL 发送缓冲（全 0
 /* ==================== 运行状态 ==================== */
 static volatile ads_diag_t s_diag;
 static volatile uint8_t   s_sign_mask = ADC_CH_SIGN_MASK;   /* 极性宏（6.7） */
-static uint8_t s_init_ok;    /* 初始化结果（Step 2 接入状态机故障位） */
+static uint8_t s_init_ok;    /* 初始化结果（main_app 失败时置 sticky FAULT_SPI，见 app/faults.h） */
 static uint16_t s_chip_id;   /* 最近一次读到的 ID 寄存器值（调试用，对应串口打印的 ID） */
 static volatile uint8_t  s_fail_addr;     /* 最近一次写回读失败的寄存器地址（调试用） */
 static volatile uint16_t s_fail_readback; /* 失败时的实际回读值（调试用：0xFFFF=悬空，错乱值=时序） */
@@ -120,8 +121,8 @@ static volatile uint16_t s_init_rx_count;    /* 已捕获帧数 */
 static volatile uint8_t  s_init_rx_overflow; /* 超过 128 帧时置 1 */
 
 /* 初始化阶段标记（调试用，直接 watch 即可定位失败阶段）：
- * 0=入口 1=EXTI重配完成 2=CLKIN启动 3=复位脉冲完成 4=DRDY等待通过
- * 5=UNLOCK已发 6=寄存器全写完 7=ID读回完成 8=LOCK已发 9=流采集已开（成功） */
+ * 0=入口 1=EXTI重配完成 2=CLKIN启动 3=复位脉冲完成
+ * 4=自愈盲发完成+DRDY等待通过 5=UNLOCK已发 6=探针校验通过 9=流采集已开（成功） */
 static volatile uint8_t s_init_stage = 0u;
 
 /* ==================== 内部工具 ==================== */
@@ -346,7 +347,35 @@ void ADS131M04_Init(void)
     HAL_GPIO_WritePin(ADC_SYNC_GPIO_Port, ADC_SYNC_Pin, GPIO_PIN_SET);
     s_init_stage = 3u;
 
-    /* 4) 等 DRDY 上升沿（POR 后接口就绪标志），超时 100ms → 无响应故障 */
+    /* 4) 自愈盲发序列（前移，2026-09-09 加固）：UNLOCK→NULL→RESET→NULL。
+     * 排障结论（2026-08-21）：上次运行可能把 MODE 写坏（WLENGTH→16bit）或
+     * 写入低功耗态（CLOCK.PWR→LP/VLP）、或接口被 LOCK，芯片带坏状态持续
+     * 运行且 DRDY 可能卡低——旧顺序"先等 DRDY 上升沿再发 RESET"会永远等不到，
+     * 自愈序列发不出去（死结）。改为复位脉冲后立即盲发：
+     * - 坏状态芯片：接口早已就绪（就绪窗口只存在于 POR 之后），RESET 保证
+     *   被解码——即使 16bit 帧模式，"命令帧+NULL 帧"两拍下命令仍落在芯片
+     *   命令槽上（LCM(144,96)=288 位 = 2 帧/3 帧对齐）；RESET 后全部寄存器
+     *   恢复默认（24bit/HR/解锁），1.8V 核心等低功耗停摆一并恢复；
+     * - 刚 POR 的健康芯片：接口未就绪窗口内 SPI 被忽略，序列无害；若恰在
+     *   序列中途就绪，至多等于对默认态芯片再发一次无害 RESET。
+     * 注：SYNC 引脚复位不可依赖（曾实测不生效），RESET 命令是可靠复位方式。 */
+    {
+        uint8_t tx[ADS_FRAME_BYTES] = {0};
+        uint8_t rx[ADS_FRAME_BYTES];
+
+        Ads_PutWord(tx, ADS_CMD_UNLOCK);
+        Ads_ExchangeFrame(tx, rx);
+        memset(tx, 0, sizeof(tx));
+        Ads_ExchangeFrame(tx, rx);
+
+        Ads_PutWord(tx, ADS_CMD_RESET);
+        Ads_ExchangeFrame(tx, rx);
+        memset(tx, 0, sizeof(tx));
+        Ads_ExchangeFrame(tx, rx);
+    }
+    s_init_stage = 4u;
+
+    /* 5) 等 DRDY 上升沿（POR / RESET 命令后接口就绪标志），超时 100ms → 无响应故障 */
     {
         uint32_t t0 = HAL_GetTick();
         while ((HAL_GetTick() - t0) < 100u)
@@ -375,47 +404,6 @@ void ADS131M04_Init(void)
                 }
             }
             return;
-        }
-    }
-    s_init_stage = 4u;
-
-    /* 4.5) 自愈复位序列（2026-08-21 排障结论）：
-     * 若上一次运行把 MODE 写坏（如 WLENGTH 被写成 16bit）或接口被 LOCK，
-     * 芯片会带着坏状态持续运行——SYNC 引脚复位不可依赖（曾实测不生效），
-     * 而 RESET 命令是第三种复位方式。关键性质：即使芯片处于 16bit 帧模式，
-     * "命令帧+NULL 帧"的两拍节奏下，每次命令交换（偶数帧）仍恰好落在芯片
-     * 的命令槽上（LCM(144,96)=288 位 = 2 帧/3 帧对齐）——UNLOCK 与 RESET
-     * 保证能被解码。RESET 后全部寄存器恢复默认（WLENGTH=24bit）。
-     * 对健康芯片本序列同样无害（等价于显式复位，随后照常重写全部寄存器）。 */
-    {
-        uint8_t tx[ADS_FRAME_BYTES] = {0};
-        uint8_t rx[ADS_FRAME_BYTES];
-
-        Ads_PutWord(tx, ADS_CMD_UNLOCK);
-        Ads_ExchangeFrame(tx, rx);
-        memset(tx, 0, sizeof(tx));
-        Ads_ExchangeFrame(tx, rx);
-
-        Ads_PutWord(tx, ADS_CMD_RESET);
-        Ads_ExchangeFrame(tx, rx);
-        memset(tx, 0, sizeof(tx));
-        Ads_ExchangeFrame(tx, rx);
-
-        /* RESET 命令后重新等 DRDY 上升沿（接口就绪标志） */
-        {
-            uint32_t t0 = HAL_GetTick();
-            while ((HAL_GetTick() - t0) < 100u)
-            {
-                if (HAL_GPIO_ReadPin(ADC_NDRDY_GPIO_Port, ADC_NDRDY_Pin) == GPIO_PIN_SET)
-                {
-                    break;
-                }
-            }
-            if ((HAL_GetTick() - t0) >= 100u)
-            {
-                App_Log_Printf("[ADS] DRDY wait (post-RESET) timeout\r\n");
-                return;
-            }
         }
     }
 
@@ -663,6 +651,11 @@ int ADS131M04_RunSelfTest(void)
 }
 
 /* ==================== 其他接口 ==================== */
+
+bool ADS131M04_IsInitOk(void)
+{
+    return s_init_ok != 0u;
+}
 
 void ADS131M04_SetChannelSign(uint8_t sign_mask)
 {
