@@ -1,6 +1,6 @@
 # 装甲板后续开发提示词
 
-你负责继续开发 `E:\STM32_PROJ\Armor_Cmzy26_081` 的装甲板 CAN 调试能力，并在需要时同步修改电管主控工程 `E:\STM32_PROJ\l431_power_management\L431PM`。先阅读 `Docs/CAN_PROTOCOL.md`、`App/comm/can_node.c`、`App/comm/board_comm.c` 以及电管的 `Application/Referee/app_armor_enum.c`。
+你负责继续开发 `E:\STM32_PROJ\l431_power_management\new_armor\Armor_Cmzy26_081` 的装甲板 CAN 调试能力，并在需要时同步修改电管主控工程 `E:\STM32_PROJ\l431_power_management\L431PM`。先阅读 `Docs/CAN_PROTOCOL.md`、`App/comm/can_node.c`、`App/comm/board_comm.c` 以及电管的 `Application/Referee/app_armor_enum.c`。
 
 现有约束：四块装甲板使用同一个 bin；电管根据 STM32 UID 自动分配运行时 NodeID 1~4。枚举帧是 `0x120~0x123`，业务 ID 是 `0x130 + (NodeID - 1) * 0x10 + offset`。未 READY 的装甲板不得发送或处理业务帧。CAN RX ISR 只能入队或置标志，解析、发送、串口打印必须在普通任务中完成；不使用动态内存；保持 500 kbps 标准 CAN 帧。
 
