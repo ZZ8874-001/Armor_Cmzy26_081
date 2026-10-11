@@ -56,7 +56,7 @@ typedef struct
 static const ads_reg_cfg_t s_reg_init[] =
 {
     { 0x03u, 0x0F0Eu },   /* CLOCK：4 通道使能 + OSR=1024 + PWR=HR（旧批默认即此值） */
-    { 0x04u, 0x0000u },   /* GAIN1：4×PGA=1（标定后提升，6.6） */
+    { 0x04u, 0x36DBu },   /* GAIN1：4 通道 ×8（量产版补偿：传感器 0.25× 前端 0.5435×，8×PGA → 净 ≈1.087） */
     { 0x06u, 0x0600u },   /* CFG：默认 */
     { 0x07u, 0x0000u },   /* THRSHLD_MSB */
     { 0x08u, 0x0000u },   /* THRSHLD_LSB（DCBLOCK=关） */

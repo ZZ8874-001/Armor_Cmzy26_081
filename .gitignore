@@ -1,3 +1,4 @@
 /build
 /.cache
 /ref/
+compile_commands.json

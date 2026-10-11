@@ -42,10 +42,10 @@ void Cal_GetDefaults(hit_param_t *p)
     p->team_color     = TEAM_COLOR_RED;
 
     /* --- ADC 与开关 --- */
-    p->gain1[0] = 1u;
-    p->gain1[1] = 1u;
-    p->gain1[2] = 1u;
-    p->gain1[3] = 1u;
+    p->gain1[0] = 8u;   /* P17 量产版：4 通道 PGA=8（传感器 0.25× + 前端 0.5435× 补偿，与 s_reg_init GAIN1=0x36DB 一致） */
+    p->gain1[1] = 8u;
+    p->gain1[2] = 8u;
+    p->gain1[3] = 8u;
     p->evt_enable     = 0x01u;            /* 事件使能开，CRC 关 */
     p->temp_over_mv   = 750u;             /* 保护阈值默认最宽松：=窗上限，等效不触发 */
     p->osr            = 1024u;
