@@ -121,8 +121,10 @@ static uint8_t Led_EffectRgb(uint8_t *r, uint8_t *g, uint8_t *b)
     {
         return 0u;                          /* 灭 */
     }
-    if (s_team_color == TEAM_COLOR_BLUE) { *r = 0u; *g = 0u; *b = 255u; }
-    else                                 { *r = 255u; *g = 0u; *b = 0u; }
+    /* 队伍色必须用官方色（与发射机构 SHOOT 对齐）：红队=粉、蓝队=湖蓝，
+     * 不得用纯红/纯蓝（2026-09-09 修正）。 */
+    if (s_team_color == TEAM_COLOR_BLUE) { *r = 0u; *g = 180u; *b = 255u; }   /* 湖蓝 COL_BLUE */
+    else                                 { *r = 255u; *g = 50u; *b = 100u; }   /* 粉色 COL_RED */
     return 1u;
 }
 

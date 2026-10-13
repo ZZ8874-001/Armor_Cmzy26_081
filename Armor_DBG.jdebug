@@ -22,17 +22,17 @@ void OnProjectLoad (void) {
   //
   // Dialog-generated settings
   //
-  Project.AddPathSubstitute ("C:/Users/Shuchen Tao/Documents/Armor_Cmzy26_081", "$(ProjectDir)");
-  Project.AddPathSubstitute ("c:/users/shuchen tao/documents/armor_cmzy26_081", "$(ProjectDir)");
   Project.SetDevice ("STM32L432KB");
-  Project.SetHostIF ("USB", "");
+  Project.SetHostIF ("USB", "20750058");
   Project.SetTargetIF ("SWD");
   Project.SetTIFSpeed ("4 MHz");
+  Project.AddPathSubstitute ("C:/Users/Shuchen Tao/Documents/Armor_Cmzy26_081", "$(ProjectDir)");
+  Project.AddPathSubstitute ("c:/users/shuchen tao/documents/armor_cmzy26_081", "$(ProjectDir)");
   Project.AddSvdFile ("$(InstallDir)/Config/CPU/Cortex-M4F.svd");
   //
   // User settings
   //
-  Edit.SysVar (VAR_HSS_SPEED, BP_STATE_OFF);
+  Edit.SysVar (VAR_HSS_SPEED, FREQ_10_KHZ);
   File.Open ("$(ProjectDir)/build/Armor_Cmzy26_081.elf");
 }
 
