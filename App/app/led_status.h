@@ -6,6 +6,8 @@
  * 灯效频率：快闪 5Hz（亮灭各 100ms）、慢闪 1Hz（亮灭各 500ms）、
  * FAULT 红蓝 500ms 交替、ID_CONFLICT 红蓝紫 333ms 循环；帧刷新 20Hz。
  * PB0=超温指示、PB1=系统正常指示（NORMAL/HIT/ID_SETUP 亮）。
+ * 优先级（状态机 1kHz 门控顺序）：故障 > 紫闪校准（REF_WARMUP/REF_PENDING）> 离线/ID/受击。
+ * 紫闪校准分两段：热身 5τ 紫 1Hz 慢闪 → 20s 击打探测窗紫 5Hz 快闪。
  ******************************************************************************
  */
 #ifndef APP_LED_STATUS_H
@@ -22,6 +24,8 @@ typedef enum
     LED_EFF_COMM_LOST,      /* 紫色常亮 */
     LED_EFF_ID_CONFLICT,    /* 红蓝紫 333ms 循环 */
     LED_EFF_BOOT,           /* 白色 300ms */
+    LED_EFF_REF_WARMUP,     /* 紫色 1Hz 慢闪：基线 EMA 热身着（5τ≈10.5s，不判拒、不训练） */
+    LED_EFF_REF_PENDING,    /* 紫色 5Hz 快闪：热身后的 20s 击打探测窗，等首次击打写参考 */
     LED_EFF_COUNT
 } led_effect_t;
 

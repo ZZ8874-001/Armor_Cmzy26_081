@@ -129,17 +129,46 @@ void App_Loop(void)
             {
                 BoardComm_ReportHitEvent(&ev);   /* 击打事件经 CAN 上报核心板 */
             }
-            App_Log_Printf("[HIT] sum_peak=%lu p0=%lu p1=%lu p2=%lu p3=%lu I=%u%%\r\n",
+            App_Log_Printf("[HIT] sum_peak=%lu p0=%lu p1=%lu p2=%lu p3=%lu I=%u%% corr=%u\r\n",
                            (unsigned long)ev.peak,
                            (unsigned long)ev.peak_ch[0], (unsigned long)ev.peak_ch[1],
                            (unsigned long)ev.peak_ch[2], (unsigned long)ev.peak_ch[3],
-                           (unsigned int)ev.intensity);
+                           (unsigned int)ev.intensity,
+                           (unsigned int)HitDetect_GetLastCorr());
         }
     }
     else
     {
         hit_event_t ev;
         while (HitDetect_GetEvent(&ev)) { /* 事件关闭时仍取走，避免滞留 */ }
+    }
+
+    /* 确认段诊断输出（两段式第二段）——不受 P18 事件使能门控：
+     * 它们是台架整定 P27（相关度下限）的手段，不是上报内容。
+     * ① 训练完成：上电后第一次被接受的击打已固化为参考并写入 Flash 末页。 */
+    {
+        uint16_t n = 0u;
+        uint32_t ferr = 0u;
+
+        if (HitDetect_GetTrainedNotice(&n, &ferr))
+        {
+            App_Log_Printf("[CONF] trained n=%u flash_err=%lu\r\n",
+                           (unsigned int)n, (unsigned long)ferr);
+        }
+    }
+    /* ② 相关度拒绝：形状不像已知的真实击打（P27>0 时才可能发生）。 */
+    {
+        uint16_t corr = 0u;
+
+        if (HitDetect_GetCorrReject(&corr))
+        {
+            App_Log_Printf("[CONF] rej corr=%u\r\n", (unsigned int)corr);
+        }
+    }
+    /* ③ 20s 校准超时沿用旧参考：补写 Flash（一次性 ~6ms 阻塞，仅此处主循环上下文）。 */
+    if (HitDetect_RefPersistPending())
+    {
+        HitDetect_RefPersist();
     }
 
     BoardComm_Loop();

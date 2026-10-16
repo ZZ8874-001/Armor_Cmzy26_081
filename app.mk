@@ -6,6 +6,7 @@ APP_SOURCES = \
 App/bsp/ads131m04.c \
 App/bsp/ws2812_uart.c \
 App/bsp/temp_mon.c \
+App/bsp/ref_store.c \
 App/detect/hit_detect.c \
 App/detect/calibration.c \
 App/comm/app_can.c \

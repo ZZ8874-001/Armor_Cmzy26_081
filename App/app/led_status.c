@@ -4,10 +4,11 @@
  * @brief   灯光联动实现（官方 6 语义 → WS2812 + PB0/PB1，设计文档 v1.5 第 8.2 节）。
  *
  * 灯效（TIM2 1kHz 相位推进；20Hz 网格重建帧并经 DMA 发送）：
- *   NORMAL     队色常亮          HIT       队色 5Hz 快闪（亮灭各 100ms）
- *   ID_SETUP   队色 1Hz 慢闪      FAULT     按故障类别查图案表（Led_FaultRgb）
- *   COMM_LOST  紫色常亮          ID_CONFLICT 红蓝紫 333ms 循环
- *   BOOT       白色（300ms 后由状态机切走）
+ *   NORMAL      队色常亮          HIT       队色 5Hz 快闪（亮灭各 100ms）
+ *   ID_SETUP    队色 1Hz 慢闪      FAULT     按故障类别查图案表（Led_FaultRgb）
+ *   COMM_LOST   紫色常亮          ID_CONFLICT 红蓝紫 333ms 循环
+ *   BOOT        白色（300ms 后由状态机切走）
+ *   REF_PENDING 紫色 5Hz 快闪（等待首次击打校准参考样本；与 COMM_LOST 的紫常亮区分）
  * FAULT 图案表（2026-09-09 定稿，周期均为 50ms 整数倍）：
  *   传感器类(bit0-11) 官方红蓝 500ms 交替（粉/湖蓝）
  *   SPI/ADC(bit12)    琥珀 2Hz（250/250ms）
@@ -111,6 +112,12 @@ static uint8_t Led_EffectRgb(uint8_t *r, uint8_t *g, uint8_t *b)
         else if ((p % 1000u) < 666u)     { *r = 0u;   *g = 180u; *b = 255u; }
         else                             { *r = 128u; *g = 0u;   *b = 128u; }
         return 1u;
+    case LED_EFF_REF_WARMUP:                /* 紫闪 1Hz：基线 EMA 热身着（5τ≈10.5s，样本不纯） */
+        if ((p % 1000u) < 500u) { *r = 128u; *g = 0u; *b = 128u; return 1u; }
+        return 0u;
+    case LED_EFF_REF_PENDING:               /* 紫闪 5Hz：热身后的 20s 击打探测窗 */
+        if ((p % 200u) < 100u) { *r = 128u; *g = 0u; *b = 128u; return 1u; }
+        return 0u;
     case LED_EFF_BOOT:
     default:
         *r = 255u; *g = 255u; *b = 255u;

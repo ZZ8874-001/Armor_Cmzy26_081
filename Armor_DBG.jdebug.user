@@ -1,11 +1,11 @@
 
 
 GraphedExpression="(ads131m04.c::s_diag).drdy_cnt", DisplayFormat=DISPLAY_FORMAT_DEC, Color=#e56a6f, Show=0
-GraphedExpression="(s_last_frame).ch[0]", Color=#35792b
-GraphedExpression="(s_last_frame).ch[1]", Color=#769dda
-GraphedExpression="(s_last_frame).ch[2]", Color=#b14f0d
-GraphedExpression="(s_last_frame).ch[3]", Color=#b3c38e
-GraphedExpression="s_hit_sum", Color=#ab7b05, Show=0
+GraphedExpression="(s_last_frame).ch[0]", Color=#35792b, Show=0
+GraphedExpression="(s_last_frame).ch[1]", Color=#769dda, Show=0
+GraphedExpression="(s_last_frame).ch[2]", Color=#b14f0d, Show=0
+GraphedExpression="(s_last_frame).ch[3]", Color=#b3c38e, Show=0
+GraphedExpression="s_hit_sum", Color=#ab7b05
 GraphedExpression="(ads131m04.c::s_diag).drop_cnt", Color=#7fd3b7, Show=0
 GraphedExpression="s_loop_max_us", Color=#50328f, Show=0
 OpenDocument="stm32l4xx_it.c", FilePath="//192.168.191.221/Shuchen's_Documents/Armor_Cmzy26_081/Core/Src/stm32l4xx_it.c", Line=84
@@ -17,18 +17,19 @@ OpenDocument="main_app.c", FilePath="//192.168.191.221/Shuchen's_Documents/Armor
 OpenDocument="Ozone_Watched_Data_1_260904.csv", FilePath="//192.168.191.221/Shuchen's_Documents/Armor_Cmzy26_081/Ozone_Watched_Data_1_260904.csv", Line=0
 OpenToolbar="Debug", Floating=0, x=0, y=0
 OpenWindow="Source Files", DockArea=LEFT, x=0, y=0, w=818, h=1398, TabPos=0, TopOfStack=0, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
+OpenWindow="Disassembly", DockArea=RIGHT, x=0, y=0, w=1133, h=277, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 OpenWindow="Watched Data 1", DockArea=LEFT, x=0, y=0, w=818, h=1398, TabPos=1, TopOfStack=1, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
-OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=1, w=1133, h=634, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
-OpenWindow="Timeline", DockArea=RIGHT, x=0, y=0, w=1133, h=785, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="2 s / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="0;0", DataGraphShowNamesAtCursor=1, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="860;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="880;0"
+OpenWindow="Data Sampling", DockArea=RIGHT, x=0, y=2, w=1133, h=514, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0, VisibleTab=0, UniformSampleSpacing=0
+OpenWindow="Timeline", DockArea=RIGHT, x=0, y=1, w=1133, h=627, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=1, DataPaneShown=1, PowerPaneShown=0, CodePaneShown=0, PinCursor="Cursor Movable", TimePerDiv="2 s / Div", TimeStampFormat="Time", DataGraphDrawAsPoints=0, DataGraphLegendShown=1, DataGraphUniformSampleSpacing=0, DataGraphLegendPosition="19;0", DataGraphShowNamesAtCursor=1, PowerGraphDrawAsPoints=0, PowerGraphLegendShown=0, PowerGraphAvgFilterTime=Off, PowerGraphAvgFilterLen=Off, PowerGraphUniformSampleSpacing=0, PowerGraphLegendPosition="530;0", CodeGraphLegendShown=0, CodeGraphLegendPosition="551;0"
 OpenWindow="Console", DockArea=BOTTOM, x=0, y=0, w=2736, h=215, FilterBarShown=0, TotalValueBarShown=0, ToolBarShown=0
 SmartViewPlugin="", Page="", Toolbar="Hidden", Window="SmartView 1"
 TableHeader="Source Files", SortCol="File", SortOrder="ASCENDING", VisibleCols=["File";"Status";"Size";"#Insts";"Path"], ColWidths=[233;100;100;100;1164]
-TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";" (ads131m04.c::s_diag).drdy_cnt";" (s_last_frame).ch[0]";" (s_last_frame).ch[1]";" (s_last_frame).ch[2]";" (s_last_frame).ch[3]";" s_hit_sum";" (ads131m04.c::s_diag).drop_cnt";" s_loop_max_us"], ColWidths=[100;100;100;100;100;100;100;100;100;100]
-TableHeader="Data Sampling Setup", SortCol="Min. Change", SortOrder="DESCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[254;256;113;146;113;113;135;157;150]
 TableHeader="Power Sampling", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";"Ch 0"], ColWidths=[100;100;100]
 TableHeader="RegisterSelectionDialog", SortCol="None", SortOrder="ASCENDING", VisibleCols=[], ColWidths=[]
-TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Location";"Refresh"], ColWidths=[232;484;100;100]
+TableHeader="Watched Data 1", SortCol="Expression", SortOrder="ASCENDING", VisibleCols=["Expression";"Value";"Location";"Refresh"], ColWidths=[232;377;100;109]
 TableHeader="TargetExceptionDialog", SortCol="Name", SortOrder="ASCENDING", VisibleCols=["Name";"Value";"Address";"Description"], ColWidths=[200;196;191;850]
+TableHeader="Data Sampling Table", SortCol="None", SortOrder="ASCENDING", VisibleCols=["Index";"Time";" (ads131m04.c::s_diag).drdy_cnt";" (s_last_frame).ch[0]";" (s_last_frame).ch[1]";" (s_last_frame).ch[2]";" (s_last_frame).ch[3]";" s_hit_sum";" (ads131m04.c::s_diag).drop_cnt";" s_loop_max_us"], ColWidths=[100;100;100;100;100;100;100;100;100;100]
+TableHeader="Data Sampling Setup", SortCol="Min. Change", SortOrder="DESCENDING", VisibleCols=["Expression";"Type";"Value";"Min";"Max";"Average";"# Changes";"Min. Change";"Max. Change"], ColWidths=[254;256;124;124;113;124;130;157;150]
 WatchedExpression="htim2", RefreshRate=2, Window=Watched Data 1
 WatchedExpression="s_state", RefreshRate=2, Window=Watched Data 1
 WatchedExpression="s_effect", RefreshRate=2, Window=Watched Data 1
@@ -68,3 +69,16 @@ WatchedExpression="s_sticky", RefreshRate=1, Window=Watched Data 1
 WatchedExpression="hcan1", RefreshRate=1, Window=Watched Data 1
 WatchedExpression="s_rx_count", RefreshRate=1, Window=Watched Data 1
 WatchedExpression="can_node_diag", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_hit_state", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_conf_verdict", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_confirm_done", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_freeze_cntdown", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_conf_uni_q10", RefreshRate=1, Window=Watched Data 1
+WatchedExpression=" s_conf_duty_pct", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_conf_zc_cnt", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_conf_sum", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_conf_pk_idx", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_conf_net_q10", RefreshRate=2, Window=Watched Data 1
+WatchedExpression="s_ref_valid", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_ref_trained_boot", RefreshRate=1, Window=Watched Data 1
+WatchedExpression="s_conf_corr", RefreshRate=1, Window=Watched Data 1

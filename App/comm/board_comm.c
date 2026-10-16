@@ -57,6 +57,11 @@ static uint8_t s_reset_pending;
 static volatile uint32_t s_sent_count;
 static volatile uint32_t s_rx_count;
 
+/* 上位机在线标志：本上电收到过任一"上位机→装甲板"方向的报文即锁存（ISR 置位）。
+ * 与 s_last_l431_rx_ms 的区别：那个要求"正确寻址到本板"才算心跳（见 Bc_CanRxBridge
+ * 末尾注释），本标志只要求方向正确——开机校准不想因为寻址细节漏判整车已上线。 */
+static volatile uint8_t s_master_heard;
+
 static void Bc_CanRxBridge(AppCanPort port, const AppCanFrame *frame);
 
 static bool Bc_Send(uint16_t id, const uint8_t *data, uint8_t dlc)
@@ -211,6 +216,7 @@ void BoardComm_Init(void)
     s_init_pending = 1u;
     s_reset_pending = (ResetCause_GetLatched() != 0u) ? 1u : 0u;
     s_sent_count = 0u; s_rx_count = 0u;
+    s_master_heard = 0u;
     CanNode_Init();
     App_Can_SetRxCallback(Bc_CanRxBridge);
 }
@@ -298,11 +304,30 @@ void BoardComm_ReportStatus(uint16_t fault_flags)
     s_fault_last_sent = 0xFFFFu;
 }
 
+/* 是否是"上位机（电管/裁判系统）→装甲板"方向的报文。
+ * 只列上位机发出的 ID：枚举 0x120/0x122 + 本板槽位的业务请求（查询/LED 控制/ID 查询/
+ * 击打 ACK）。反向的 0x121/0x123（兄弟板 announce/ACK）与 0x110~0x112/0x130/0x132…
+ * （本板与兄弟板上报）都不算——否则兄弟板一说话就会被误判成"上位机在线"。
+ * CanNode_BusinessId 在未 READY 时返回 0，而合法帧 ID 恒非 0（收帧过滤器为 0x100~0x17F），
+ * 故不 READY 时这里自然只剩 0x120/0x122 命中，正是枚举阶段需要的。 */
+static uint8_t Bc_IsMasterFrame(const AppCanFrame *f)
+{
+    uint16_t id = (uint16_t)f->can_id;
+    if (id == CAN_NODE_ID_ENUM_START || id == CAN_NODE_ID_ASSIGN) { return 1u; }
+    return (id == CanNode_BusinessId(CAN_NODE_OFFSET_STATUS_QUERY) ||
+            id == CanNode_BusinessId(CAN_NODE_OFFSET_LED_CONTROL)  ||
+            id == CanNode_BusinessId(CAN_NODE_OFFSET_NODE_ID_QUERY)||
+            id == CanNode_BusinessId(CAN_NODE_OFFSET_HIT_ACK)) ? 1u : 0u;
+}
+
 /* CAN RX ISR context: only supported small-frame queue handling. */
 static void Bc_CanRxBridge(AppCanPort port, const AppCanFrame *frame)
 {
     uint8_t next;
     if (port != APP_CAN_PORT_1 || frame == NULL || frame->is_extended_id != 0u) { return; }
+
+    /* 锁存"上位机在线"（开机校准的提前退出条件，见 state_machine.c）。 */
+    if (Bc_IsMasterFrame(frame)) { s_master_heard = 1u; }
 
     CanNode_OnRxIsr(frame);
     if (!CanNode_IsReady()) { return; }
@@ -324,4 +349,9 @@ static void Bc_CanRxBridge(AppCanPort port, const AppCanFrame *frame)
     memcpy(s_rx_queue[s_rx_wr].data, frame->data, sizeof(frame->data));
     s_rx_wr = next;
     s_rx_count++;
+}
+
+bool BoardComm_MasterHeard(void)
+{
+    return (s_master_heard != 0u) ? true : false;
 }

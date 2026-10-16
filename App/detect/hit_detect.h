@@ -56,6 +56,50 @@ void HitDetect_Tick(void);
 /* 取最新事件（非破坏）；无新事件返回 false。 */
 bool HitDetect_GetEvent(hit_event_t *e);
 
+/* ---- 参考样本相关判定（P27，两段式第二段的判据） ----
+ * 语义：**热身后**第一次"被接受"的击打的锁帧合力窗固化为参考并落盘；此后每次
+ * 确认都与参考做归一化互相关（Pearson |ρ|×1024，与幅值无关），低于 P27 则拒绝
+ * （P27=0 时只统计不判拒）。参考的载入/固化见 bsp/ref_store.h。
+ *
+ * 热身（P01 s_bl 的 5 个 EMA 时间常数，5×2^s_bl 样本，≈10.5s）：基线滤波从 0
+ * 起步，前几个 τ 是对数建立瞬态，此窗内固化参考会污染样本。故热身期**不判拒、
+ * 不训练**——击打照常触发/计数/上报（不用受污染的窗去否掉真实击打），但参考窗
+ * 保持纯净。热身期判据退化为"一律接受"。
+ *
+ * 无可用参考时（首上电/Flash 空）也一样接受：否则 corr=0 < P27 会把首击拒掉，
+ * 训练永不发生，参考永远建立不起来（死锁）。 */
+
+/* 已有可用参考：Flash 载入的旧值 或 本次上电训练写入的新值。 */
+bool HitDetect_RefValid(void);
+
+/* 本次上电是否已完成训练（状态机紫闪校准的退出条件之一；Flash 载入不算训练）。 */
+bool HitDetect_RefTrainedThisBoot(void);
+
+/* 请求把 RAM 中现有参考回写 Flash（20s 超时沿用旧值路径）。ISR 安全：只置标志。 */
+void HitDetect_RefRequestPersist(void);
+
+/* 是否有待回写请求（主循环轮询；ISR 安全）。 */
+bool HitDetect_RefPersistPending(void);
+
+/* 执行回写（纯编程 ~6ms 阻塞，仅主循环上下文；ISR 内禁止调用）。 */
+void HitDetect_RefPersist(void);
+
+/* 基线热身时长 ms（P01 s_bl 的 5τ；s_bl=13 → 40960 样本 → 10485ms）。
+ * 状态机 Init 时取一次作紫闪 1Hz→5Hz 的相位翻转点与探测窗起点。 */
+uint32_t HitDetect_GetWarmupMs(void);
+
+/* 最近一次确认得到的相关度 q10（接受/拒绝都更新；诊断用，
+ * 热身期/无参考/窗长失配时为 0）。 */
+uint16_t HitDetect_GetLastCorr(void);
+
+/* 取最新一次"相关度不足"拒绝的相关度（一次性取出，深度 1）；无新拒绝返回 false。
+ * detect 层不依赖 comm，日志由 app 层经此取走（同上，一次只有相关度一个字段）。 */
+bool HitDetect_GetCorrReject(uint16_t *corr_q10);
+
+/* 取最新一次"训练完成"通知（一次性取出，深度 1）：样本数 + 落盘结果
+ * （flash_err：0=成功，其余见 RefStore_GetErr）。 */
+bool HitDetect_GetTrainedNotice(uint16_t *n, uint32_t *flash_err);
+
 /* 运行时更新参数。 */
 void HitDetect_UpdateParams(const hit_param_t *p);
 
@@ -65,7 +109,9 @@ uint16_t HitDetect_GetFaultFlags(void);
 /* 预留：开机击打校对极性（6.7，M2 落地）。 */
 int  HitDetect_CalibratePolarity(void);
 
-/* 预留：波形捕获（环形窗口冻结，7.8，M2 实现）。 */
+/* 波形捕获：取上次触发冻结的窗口（一次性取出，置 s_wave_ready=0）。
+ * 返回样本数 n（= P21+P22）；buf 需 ≥ HIT_WAVE_MAX = 128 样本（上限，当前 P21=P22=64
+ * 即取满），该宏定义在 hit_detect.c 内，调用方须自行按 128 分配。ch=0xFF 取合力通道。 */
 int  HitDetect_GetWaveform(uint8_t ch, ads_sample_t *buf, uint16_t *n);
 
 /* 预留：弹速/入射角反推（7.8，M6 实现）。 */
