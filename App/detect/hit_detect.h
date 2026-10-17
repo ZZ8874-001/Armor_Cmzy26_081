@@ -67,7 +67,14 @@ bool HitDetect_GetEvent(hit_event_t *e);
  * 保持纯净。热身期判据退化为"一律接受"。
  *
  * 无可用参考时（首上电/Flash 空）也一样接受：否则 corr=0 < P27 会把首击拒掉，
- * 训练永不发生，参考永远建立不起来（死锁）。 */
+ * 训练永不发生，参考永远建立不起来（死锁）。
+ *
+ * 训练前不判拒（2026-10-17）：只有本上电训练出来的参考才有资格拒判——旧参考
+ * 可能来自不同的激励方式/安装，用它拒掉首击会让训练永不可达；训练前一律接受，
+ * 第一记被接受的击打训练新参考，训练后相关度判据才生效。
+ *
+ * 训练合法性（2026-10-17 放宽版）：|hp_sum| 峰值 idx 距窗首/尾 ≥5 样本才固化，
+ * 贴边窗不训练、机会保留给下一击（诊断经 HitDetect_GetCalReject 一次性取出）。 */
 
 /* 已有可用参考：Flash 载入的旧值 或 本次上电训练写入的新值。 */
 bool HitDetect_RefValid(void);
@@ -86,6 +93,10 @@ uint16_t HitDetect_GetLastCorr(void);
 /* 取最新一次"相关度不足"拒绝的相关度（一次性取出，深度 1）；无新拒绝返回 false。
  * detect 层不依赖 comm，日志由 app 层经此取走（同上，一次只有相关度一个字段）。 */
 bool HitDetect_GetCorrReject(uint16_t *corr_q10);
+
+/* 取最新一次"校准合法性拒绝"的峰值 idx（一次性取出，深度 1）；无新拒绝返回 false。
+ * 触发条件：训练击打的 |hp_sum| 峰值落在窗首/尾 5 样本内（见 hit_detect.c）。 */
+bool HitDetect_GetCalReject(uint16_t *pk_idx);
 
 /* 取最新一次"训练完成"通知（一次性取出，深度 1）：样本数 + 落盘结果
  * （flash_err：0=成功，其余见 RefStore_GetErr）。 */

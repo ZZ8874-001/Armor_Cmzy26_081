@@ -91,7 +91,9 @@ static volatile uint32_t s_conf_abort_cnt;           /* 累计冻结异常中止
 static volatile uint8_t  s_confirm_done;             /* 冻结窗已满（Hit_FreezeAppend 置位） */
 static volatile uint32_t s_conf_ts_ms;               /* 本次触发时刻（事件/拒绝共用） */
 static volatile uint16_t s_conf_corr;                /* 本次确认的相关度 |ρ|×1024（判据本体） */
+static volatile uint32_t s_conf_pk_idx;              /* 本次确认的 |hp_sum| 峰值索引（校准合法性判据） */
 static volatile uint8_t  s_corr_reject_pending;      /* 相关度拒绝待取标志（深度 1） */
+static volatile uint8_t  s_cal_rej_pending;          /* 校准合法性拒绝待取标志（深度 1，上报峰值 idx） */
 
 /* 参考样本（P27）：s_ref_sum 为原始副本（训练落盘 Flash 用），s_ref_c 为去均值副本
  * （相关计算用）。两者都在训练/载入时一次性固化，判定路径只读。 */
@@ -257,6 +259,16 @@ static void Hit_RefTrain(void)
     if (s_ref_trained_boot != 0u || s_wave_total == 0u ||
         s_boot_samples < s_warmup_samples) { return; }
 
+    /* 校准合法性（2026-10-17 放宽版）：|hp_sum| 峰值 idx 距窗首/窗尾不足 5 样本
+     * → 冻结窗没包住完整击打波形，不训练——机会保留给下一记被接受的击打（事件
+     * 本身已照常接受/上报）。窗长 ≤10 时有效区间为空，一律不训练。 */
+    if (s_wave_total <= 10u ||
+        s_conf_pk_idx < 5u || (s_conf_pk_idx + 5u) >= (uint32_t)s_wave_total)
+    {
+        s_cal_rej_pending = 1u;
+        return;
+    }
+
     Hit_RefFix(s_wave_frozen_sum, s_wave_total);
     if (s_ref_valid == 0u) { return; }
 
@@ -391,6 +403,7 @@ typedef struct
 {
     uint32_t dif_pk;        /* |dif_sum| 峰值（事件 peak 字段） */
     int32_t  sum_pk;        /* |hp_sum| 峰值（半高脉宽基准） */
+    uint32_t sum_pk_idx;    /* |hp_sum| 峰值索引（校准合法性判据，取首个最大峰） */
     uint32_t hp_pk[4];      /* 各通道 |hp| 峰值（事件 peak_ch 字段） */
     uint64_t abs_ch[4];     /* 各通道 Σ|hp|（冲量积分用） */
     uint32_t duty_cnt;      /* |hp_sum| ≥ sum_pk/2 的样本数（半高脉宽） */
@@ -410,7 +423,7 @@ static void Hit_ConfirmEval(confirm_feat_t *f)
         int32_t v = s_wave_frozen_sum[i];
         int32_t a = (v < 0) ? -v : v;
 
-        if (a > f->sum_pk) { f->sum_pk = a; }
+        if (a > f->sum_pk) { f->sum_pk = a; f->sum_pk_idx = i; }
 
         v = s_wave_frozen_dif[i];
         a = (v < 0) ? -v : v;
@@ -493,6 +506,7 @@ static void Hit_TriggerStart(void)
     s_hit_trig_cnt++;
     s_confirm_done = 0u;
     s_conf_corr = 0u;
+    s_conf_pk_idx = 0u;
     Hit_FreezeStart();
     s_hit_state = HIT_ST_CONFIRMING;
 }
@@ -520,18 +534,24 @@ static void Hit_ConfirmRun(void)
 
     s_confirm_done = 0u;
     Hit_ConfirmEval(&ft);
+    s_conf_pk_idx = ft.sum_pk_idx;
     corr_q10 = Hit_CorrQ10(s_wave_total);
     warmup_elapsed = (s_boot_samples >= s_warmup_samples) ? 1u : 0u;
 
     /* 判据（P27）：相关度低于下限 → 形状不像已知的真实击打。P27=0 恒接受
-     * （只统计不判拒，重采分布整定时用）。两处门控（2026-10-16 决策）：
+     * （只统计不判拒，重采分布整定时用）。三处门控：
      *   ① 热身未满（s_boot_samples < 5τ，s_bl=13 时 ≈10.5s）：基线 EMA 沉降瞬态
      *      污染冻结窗，corr 不可信 → 不判拒（击打照常接受/上报），训练同样被禁
      *      （Hit_RefTrain 同款门控），参考样本保持纯净。
      *   ② 无可用参考（s_ref_valid=0）：corr=0 无意义 → 直接接受并训练，修复死锁
      *      （旧逻辑 corr<下限拒掉首击 → Hit_RefTrain 永不可达 → 新板永不训练）。
+     *   ③ 训练前不判拒（s_ref_trained_boot=0，2026-10-17 决策）：只有本上电训练
+     *      出来的参考才有资格拒判——旧参考可能来自不同的激励方式/安装，用它拒掉
+     *      首击会让训练永不可达（旧参考→拒判→不训练→旧参考 的死锁）。训练前一律
+     *      接受，第一记击打训练新参考，训练后相关度判据才生效。
      * 参考有效但窗长失配/冻结异常时 corr=0 → 仍落拒判分支，属预期。 */
     reject = (warmup_elapsed != 0u &&
+              s_ref_trained_boot != 0u &&
               s_ref_valid != 0u &&
               s_p.corr_min_q10 > 0u &&
               corr_q10 < (uint32_t)s_p.corr_min_q10) ? 1u : 0u;
@@ -624,8 +644,10 @@ void HitDetect_Init(const hit_param_t *p)
     s_freeze_active = 0u;
     s_confirm_done = 0u;
     s_corr_reject_pending = 0u;
+    s_cal_rej_pending = 0u;
     s_conf_ts_ms = 0u;
     s_conf_corr = 0u;
+    s_conf_pk_idx = 0u;
     s_hit_trig_cnt = 0u;
     s_conf_reject_cnt = 0u;
     s_conf_abort_cnt = 0u;
@@ -782,6 +804,14 @@ bool HitDetect_GetCorrReject(uint16_t *corr_q10)
     if (s_corr_reject_pending == 0u || corr_q10 == NULL) { return false; }
     *corr_q10 = s_conf_corr;
     s_corr_reject_pending = 0u;
+    return true;
+}
+
+bool HitDetect_GetCalReject(uint16_t *pk_idx)
+{
+    if (s_cal_rej_pending == 0u || pk_idx == NULL) { return false; }
+    *pk_idx = (uint16_t)s_conf_pk_idx;
+    s_cal_rej_pending = 0u;
     return true;
 }
 

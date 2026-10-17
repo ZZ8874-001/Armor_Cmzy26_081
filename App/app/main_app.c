@@ -156,13 +156,22 @@ void App_Loop(void)
                            (unsigned int)n, (unsigned long)ferr);
         }
     }
-    /* ② 相关度拒绝：形状不像已知的真实击打（P27>0 时才可能发生）。 */
+    /* ② 相关度拒绝：形状不像已知的真实击打（P27>0 且本上电已训练后才可能发生）。 */
     {
         uint16_t corr = 0u;
 
         if (HitDetect_GetCorrReject(&corr))
         {
             App_Log_Printf("[CONF] rej corr=%u\r\n", (unsigned int)corr);
+        }
+    }
+    /* ③ 校准合法性拒绝：训练击打的峰值落在窗首/尾 5 样本内，本次不训练（机会保留）。 */
+    {
+        uint16_t pk = 0u;
+
+        if (HitDetect_GetCalReject(&pk))
+        {
+            App_Log_Printf("[CONF] cal-rej pk=%u\r\n", (unsigned int)pk);
         }
     }
 

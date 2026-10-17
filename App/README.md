@@ -124,8 +124,8 @@ App/
 - FAULT **不是单一图案**，按故障类别分（`led_status.c` 的 `Led_FaultRgb`）：超温粉红常亮 / 温度出窗青 5Hz / PVD 欠压白单闪 2Hz / SPI·DRDY 链路琥珀 2Hz / 传感器类红蓝 500ms 交替。
 - 指示 LED：**PB0=超温指示、PB1=系统正常指示**（NORMAL/HIT/ID_SETUP 亮；**高电平点亮、低电平灭**——硬件实测确认）。PB1 由 `LedStatus` 驱动；骨架阶段 main_app 的 1Hz 自证闪烁已随 Step3 移除。
 - 检测调试变量（hit_detect.c）：`s_hit_dif`（实时差分信号）、`s_hit_sum`/`s_hit_bl[4]`（合力/基线）、`s_hit_state`（0=IDLE/1=ARMED/**2=CONFIRMING**/3=REFRACTORY/4=SETTLING）、`s_hit_event`/`s_hit_count`（**语义=接受事件数**）、`s_wave_ready`/`s_wave_frozen_*`（锁帧波形）、`s_hit_faults`。
-- 确认段调试变量（hit_detect.c，两段式判定的第二段）：`s_hit_trig_cnt`（总触发数，含被拒）、`s_conf_reject_cnt`（相关度不足拒绝数）、`s_conf_abort_cnt`（冻结异常中止数）、**`s_conf_corr`（本次确认的 \|Pearson ρ\|×1024，判据本体）**、`s_confirm_done`。三路计数满足对账 `s_hit_trig_cnt = s_hit_count（接受） + s_conf_reject_cnt（拒判） + s_conf_abort_cnt（冻结异常）`。整定 P27 时观察 `s_conf_corr` + USART1 的 `[HIT] … corr=` / `[CONF] rej corr=` 日志。
-- 热身调试变量（hit_detect.c）：`s_boot_samples`（自 Init 起消费的样本数，含自检喂帧/REFRACTORY 期间）、`s_warmup_samples`（=5×2^s_bl，s_bl=13 → 40960 ≈10.485s）。**热身未满 → 判据不判拒、训练禁用**，故 `s_boot_samples < s_warmup_samples` 时不该出现 `[CONF] trained` 或 `[CONF] rej`。
+- 确认段调试变量（hit_detect.c，两段式判定的第二段）：`s_hit_trig_cnt`（总触发数，含被拒）、`s_conf_reject_cnt`（相关度不足拒绝数）、`s_conf_abort_cnt`（冻结异常中止数）、**`s_conf_corr`（本次确认的 \|Pearson ρ\|×1024，判据本体）**、**`s_conf_pk_idx`（本次确认的 \|hp_sum\| 峰值索引，校准合法性判据）**、`s_confirm_done`。三路计数满足对账 `s_hit_trig_cnt = s_hit_count（接受） + s_conf_reject_cnt（拒判） + s_conf_abort_cnt（冻结异常）`。整定 P27 时观察 `s_conf_corr` + USART1 的 `[HIT] … corr=` / `[CONF] rej corr=` / `[CONF] cal-rej pk=` 日志。
+- 热身调试变量（hit_detect.c）：`s_boot_samples`（自 Init 起消费的样本数，含自检喂帧/REFRACTORY 期间）、`s_warmup_samples`（=5×2^s_bl，s_bl=13 → 40960 ≈10.485s）。**热身未满 → 判据不判拒、训练禁用**，故 `s_boot_samples < s_warmup_samples` 时不该出现 `[CONF] trained`、`[CONF] rej` 或 `[CONF] cal-rej`。
 - 参考样本调试变量（hit_detect.c）：`s_ref_valid`（1=有可用参考）、`s_ref_trained_boot`（1=本次上电已训练）、`s_ref_n`（样本数，应 = 128 = P21+P22；不等则 corr 恒 0）、`s_ref_norm`（Σc²，归一化因子）、`s_ref_train_n`/`s_ref_train_err`（固化样本数 / 落盘结果）。Flash 侧失败码见 `ref_store.c` 的 `RefStore_GetErr()`（0=无错/1=擦除/2=编程/3=解锁）。
 - 自检变量（ads131m04.c）：`s_st_dc[4]`（直流偏置，随姿态变化正常）、`s_st_rms[4]`（**去均值后**的真实噪声，期望 <100 counts）。
 
@@ -134,7 +134,7 @@ App/
 - **K=32 帧环形缓冲**（`ADS_RING_DEPTH`，32×18B=576B）：DRDY EXTI 取空闲槽写、槽满跳帧 + `drop_cnt` 计数；主循环按读指针消费（写指针仅 ISR、读指针仅主循环，R17）。
 - WS2812 帧缓冲：`WS2812_FRAME_BYTES`=156B（13×12，编码为每 UART 字节 2 个 WS 位、每颜色字节 4 字节），DMA 发送 ≈416µs，20Hz 刷新。（118B 是已废弃的 2.667MBd 分数格方案的遗留值。）
 - CAN 接收队列和击打事件队列均为 4 项固定帧缓冲；CAN 暂时发送失败时击打事件按 100ms 节拍重试，直到电管回 `offset=0xA` ACK。
-- 事件流（**两段式**）：ADS 帧 → `HitDetect_Feed` → 触发（|hit_dif|≥P04 且连续≥P03）→ 锁帧 + CONFIRMING → 等满 P22 触发后样本 → 与**参考样本**做归一化互相关（P27）→ **接受**（**热身 5τ 内或参考不可用时判据一律让路**，见 `hit_detect.h` 参考语义段）：`hit_event_t`（冻结窗峰值 + `peak_ch[4]` + impulse/duration）→ 若为**热身后**本次上电第一次接受则固化参考 + 写 Flash 末页 → `StateMachine_OnHitEvent` → `BoardComm_ReportHitEvent`；**拒绝**：只留相关度 → `HitDetect_GetCorrReject`（main_app 打 `[CONF] rej corr=`，不上 CAN、不进状态机）。两条路都进 50ms 不应期 + P26 沉降门控。
+- 事件流（**两段式**）：ADS 帧 → `HitDetect_Feed` → 触发（|hit_dif|≥P04 且连续≥P03）→ 锁帧 + CONFIRMING → 等满 P22 触发后样本 → 与**参考样本**做归一化互相关（P27）→ **接受**（**热身 5τ 内、参考不可用或本上电尚未训练时判据一律让路**——训练前不判拒，旧参考不会堵死重训；见 `hit_detect.h` 参考语义段）：`hit_event_t`（冻结窗峰值 + `peak_ch[4]` + impulse/duration）→ 若为**热身后**本次上电第一次接受**且峰值 idx 距窗首/尾 ≥5 样本**（校准合法性）则固化参考 + 写 Flash 末页，贴边则 `[CONF] cal-rej` 留待下一击 → `StateMachine_OnHitEvent` → `BoardComm_ReportHitEvent`；**拒绝**：只留相关度 → `HitDetect_GetCorrReject`（main_app 打 `[CONF] rej corr=`，不上 CAN、不进状态机）。两条路都进 50ms 不应期 + P26 沉降门控。
 - 层间约束：`detect/` 不依赖 `comm/`，故拒绝/事件都只入队，日志与上报由 `app/` 层取走。
 - **Flash 写只在主循环**：`RefStore_Load` 上电**纯读、不擦页**（页保留旧参考直到训练写入覆盖）；`RefStore_Save`（擦+写 ~31ms）仅主循环可调，由训练链路调用（落在 50ms 不应期内），ISR 内禁止碰 Flash。
 
