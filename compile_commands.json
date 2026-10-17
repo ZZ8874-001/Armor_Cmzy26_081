@@ -165,11 +165,6 @@
         "file": "c:\\Users\\Shuchen Tao\\Documents\\Armor_Cmzy26_081\\App\\bsp\\ads131m04.c"
     },
     {
-        "command": "arm-none-eabi-gcc -c -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DUSE_HAL_DRIVER -DSTM32L432xx -ICore/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc/Legacy -IDrivers/CMSIS/Device/ST/STM32L4xx/Include -IDrivers/CMSIS/Include -IApp -IApp/bsp -IApp/detect -IApp/comm -IApp/app -Og -Wall -fdata-sections -ffunction-sections -g -gdwarf-2 -MMD -MP -MF\"build/ref_store.d\" -Wa,-a,-ad,-alms=build/ref_store.lst App/bsp/ref_store.c -o build/ref_store.o",
-        "directory": "c:/Users/Shuchen Tao/Documents/Armor_Cmzy26_081",
-        "file": "c:\\Users\\Shuchen Tao\\Documents\\Armor_Cmzy26_081\\App\\bsp\\ref_store.c"
-    },
-    {
         "command": "arm-none-eabi-gcc -c -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DUSE_HAL_DRIVER -DSTM32L432xx -ICore/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc/Legacy -IDrivers/CMSIS/Device/ST/STM32L4xx/Include -IDrivers/CMSIS/Include -IApp -IApp/bsp -IApp/detect -IApp/comm -IApp/app -Og -Wall -fdata-sections -ffunction-sections -g -gdwarf-2 -MMD -MP -MF\"build/ws2812_uart.d\" -Wa,-a,-ad,-alms=build/ws2812_uart.lst App/bsp/ws2812_uart.c -o build/ws2812_uart.o",
         "directory": "c:/Users/Shuchen Tao/Documents/Armor_Cmzy26_081",
         "file": "c:\\Users\\Shuchen Tao\\Documents\\Armor_Cmzy26_081\\App\\bsp\\ws2812_uart.c"
@@ -178,6 +173,11 @@
         "command": "arm-none-eabi-gcc -c -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DUSE_HAL_DRIVER -DSTM32L432xx -ICore/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc/Legacy -IDrivers/CMSIS/Device/ST/STM32L4xx/Include -IDrivers/CMSIS/Include -IApp -IApp/bsp -IApp/detect -IApp/comm -IApp/app -Og -Wall -fdata-sections -ffunction-sections -g -gdwarf-2 -MMD -MP -MF\"build/temp_mon.d\" -Wa,-a,-ad,-alms=build/temp_mon.lst App/bsp/temp_mon.c -o build/temp_mon.o",
         "directory": "c:/Users/Shuchen Tao/Documents/Armor_Cmzy26_081",
         "file": "c:\\Users\\Shuchen Tao\\Documents\\Armor_Cmzy26_081\\App\\bsp\\temp_mon.c"
+    },
+    {
+        "command": "arm-none-eabi-gcc -c -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DUSE_HAL_DRIVER -DSTM32L432xx -ICore/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc/Legacy -IDrivers/CMSIS/Device/ST/STM32L4xx/Include -IDrivers/CMSIS/Include -IApp -IApp/bsp -IApp/detect -IApp/comm -IApp/app -Og -Wall -fdata-sections -ffunction-sections -g -gdwarf-2 -MMD -MP -MF\"build/ref_store.d\" -Wa,-a,-ad,-alms=build/ref_store.lst App/bsp/ref_store.c -o build/ref_store.o",
+        "directory": "c:/Users/Shuchen Tao/Documents/Armor_Cmzy26_081",
+        "file": "c:\\Users\\Shuchen Tao\\Documents\\Armor_Cmzy26_081\\App\\bsp\\ref_store.c"
     },
     {
         "command": "arm-none-eabi-gcc -c -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -DUSE_HAL_DRIVER -DSTM32L432xx -ICore/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc -IDrivers/STM32L4xx_HAL_Driver/Inc/Legacy -IDrivers/CMSIS/Device/ST/STM32L4xx/Include -IDrivers/CMSIS/Include -IApp -IApp/bsp -IApp/detect -IApp/comm -IApp/app -Og -Wall -fdata-sections -ffunction-sections -g -gdwarf-2 -MMD -MP -MF\"build/hit_detect.d\" -Wa,-a,-ad,-alms=build/hit_detect.lst App/detect/hit_detect.c -o build/hit_detect.o",

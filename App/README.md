@@ -119,14 +119,14 @@ App/
 ## 10. 状态与灯效枚举
 
 - 状态机（`app/state_machine.h`）：`SM_STATE_BOOT/NORMAL/HIT/FAULT/COMM_LOST/ID_SETUP/ID_CONFLICT/REF_PENDING`（《设计方案》第 11 章状态表）。**门控优先级：故障 > REF_PENDING 紫闪校准 > COMM_LOST 离线 > 其余**（`StateMachine_Tick` 顶部门顺序即优先级）；`OnHitEvent` 的白名单含 `REF_PENDING`（上电第一击就是训练击打，不能被吞）。紫闪分两段：热身 5τ（`s_warmup_ms` 由 `HitDetect_GetWarmupMs()` 在 `StateMachine_Init` 缓存）紫 1Hz → 之后 20s 探测窗紫 5Hz；相位由 `Sm_RefPhaseTick()` 按 `s_train_ms`（自 BOOT 的墙钟，HIT 打断不清零）判定，且**必须由顶层校准门路径驱动**——门每 tick 调 `Sm_ToRefPending()` 后提前 return，`case SM_STATE_REF_PENDING` 只在门放行后才可达。
-- **校准提前退出**：`BoardComm_MasterHeard()`（收到任一"电管→装甲板"方向的报文，`board_comm.c` 的 `Bc_IsMasterFrame`）且 `HitDetect_RefValid()` → `Sm_RefPendingNeeded()` 返回 0，立刻结束校准进 NORMAL（BOOT 阶段同理，白灯 300ms 后直接进 NORMAL 不闪紫）。**Flash 空则不退出**，照常校准训参考。三条退出路径（训练完成 / 上位机上线 / 20s 超时）**统一走 `Sm_LeaveRefPending()`**——未训练时必须把 RAM 旧参考回写 Flash，因为本上电开头 `RefStore_Load` 已无条件擦页；漏掉这步会清空跨断电参考。
+- **校准提前退出**：`BoardComm_MasterHeard()`（收到任一"电管→装甲板"方向的报文，`board_comm.c` 的 `Bc_IsMasterFrame`）且 `HitDetect_RefValid()` → `Sm_RefPendingNeeded()` 返回 0，立刻结束校准进 NORMAL（BOOT 阶段同理，白灯 300ms 后直接进 NORMAL 不闪紫）。**Flash 空则不退出**，照常校准训参考。三条退出路径（训练完成 / 上位机上线 / 20s 超时）**统一走 `Sm_LeaveRefPending()`**，只置 NORMAL + 灯效、**无 Flash 写入**——方案 B（2026-10-17）：`RefStore_Load` 上电纯读不擦页，页里始终保留旧参考，本上电唯一写入是训练击打的擦+写；任何非写入时刻掉电都不丢参考。
 - 灯效（`app/led_status.h`）：`LED_EFF_NORMAL/HIT/ID_SETUP/FAULT/COMM_LOST/ID_CONFLICT/BOOT/REF_WARMUP/REF_PENDING`；频率：快闪 5Hz、慢闪 1Hz、ID_CONFLICT 红蓝紫 333ms、**REF_WARMUP 紫 1Hz 慢闪（基线 EMA 热身 5τ）→ REF_PENDING 紫 5Hz 快闪（20s 探测窗）**（与 COMM_LOST 紫常亮区分）；帧刷新 20Hz。注：紫 1Hz/5Hz 与 ID_SETUP/HIT 的队色节奏相同，**靠颜色区分**。
 - FAULT **不是单一图案**，按故障类别分（`led_status.c` 的 `Led_FaultRgb`）：超温粉红常亮 / 温度出窗青 5Hz / PVD 欠压白单闪 2Hz / SPI·DRDY 链路琥珀 2Hz / 传感器类红蓝 500ms 交替。
 - 指示 LED：**PB0=超温指示、PB1=系统正常指示**（NORMAL/HIT/ID_SETUP 亮；**高电平点亮、低电平灭**——硬件实测确认）。PB1 由 `LedStatus` 驱动；骨架阶段 main_app 的 1Hz 自证闪烁已随 Step3 移除。
 - 检测调试变量（hit_detect.c）：`s_hit_dif`（实时差分信号）、`s_hit_sum`/`s_hit_bl[4]`（合力/基线）、`s_hit_state`（0=IDLE/1=ARMED/**2=CONFIRMING**/3=REFRACTORY/4=SETTLING）、`s_hit_event`/`s_hit_count`（**语义=接受事件数**）、`s_wave_ready`/`s_wave_frozen_*`（锁帧波形）、`s_hit_faults`。
 - 确认段调试变量（hit_detect.c，两段式判定的第二段）：`s_hit_trig_cnt`（总触发数，含被拒）、`s_conf_reject_cnt`（相关度不足拒绝数）、`s_conf_abort_cnt`（冻结异常中止数）、**`s_conf_corr`（本次确认的 \|Pearson ρ\|×1024，判据本体）**、`s_confirm_done`。三路计数满足对账 `s_hit_trig_cnt = s_hit_count（接受） + s_conf_reject_cnt（拒判） + s_conf_abort_cnt（冻结异常）`。整定 P27 时观察 `s_conf_corr` + USART1 的 `[HIT] … corr=` / `[CONF] rej corr=` 日志。
 - 热身调试变量（hit_detect.c）：`s_boot_samples`（自 Init 起消费的样本数，含自检喂帧/REFRACTORY 期间）、`s_warmup_samples`（=5×2^s_bl，s_bl=13 → 40960 ≈10.485s）。**热身未满 → 判据不判拒、训练禁用**，故 `s_boot_samples < s_warmup_samples` 时不该出现 `[CONF] trained` 或 `[CONF] rej`。
-- 参考样本调试变量（hit_detect.c）：`s_ref_valid`（1=有可用参考）、`s_ref_trained_boot`（1=本次上电已训练）、`s_ref_n`（样本数，应 = 128 = P21+P22；不等则 corr 恒 0）、`s_ref_norm`（Σc²，归一化因子）、`s_ref_train_n`/`s_ref_train_err`（固化样本数 / 落盘结果）、`s_ref_persist_req`。Flash 侧失败码见 `ref_store.c` 的 `RefStore_GetErr()`（0=无错/1=擦除/2=编程/3=解锁）。
+- 参考样本调试变量（hit_detect.c）：`s_ref_valid`（1=有可用参考）、`s_ref_trained_boot`（1=本次上电已训练）、`s_ref_n`（样本数，应 = 128 = P21+P22；不等则 corr 恒 0）、`s_ref_norm`（Σc²，归一化因子）、`s_ref_train_n`/`s_ref_train_err`（固化样本数 / 落盘结果）。Flash 侧失败码见 `ref_store.c` 的 `RefStore_GetErr()`（0=无错/1=擦除/2=编程/3=解锁）。
 - 自检变量（ads131m04.c）：`s_st_dc[4]`（直流偏置，随姿态变化正常）、`s_st_rms[4]`（**去均值后**的真实噪声，期望 <100 counts）。
 
 ## 11. 数据流与缓冲约定
@@ -136,7 +136,7 @@ App/
 - CAN 接收队列和击打事件队列均为 4 项固定帧缓冲；CAN 暂时发送失败时击打事件按 100ms 节拍重试，直到电管回 `offset=0xA` ACK。
 - 事件流（**两段式**）：ADS 帧 → `HitDetect_Feed` → 触发（|hit_dif|≥P04 且连续≥P03）→ 锁帧 + CONFIRMING → 等满 P22 触发后样本 → 与**参考样本**做归一化互相关（P27）→ **接受**（**热身 5τ 内或参考不可用时判据一律让路**，见 `hit_detect.h` 参考语义段）：`hit_event_t`（冻结窗峰值 + `peak_ch[4]` + impulse/duration）→ 若为**热身后**本次上电第一次接受则固化参考 + 写 Flash 末页 → `StateMachine_OnHitEvent` → `BoardComm_ReportHitEvent`；**拒绝**：只留相关度 → `HitDetect_GetCorrReject`（main_app 打 `[CONF] rej corr=`，不上 CAN、不进状态机）。两条路都进 50ms 不应期 + P26 沉降门控。
 - 层间约束：`detect/` 不依赖 `comm/`，故拒绝/事件都只入队，日志与上报由 `app/` 层取走。
-- **Flash 写只在主循环**：`RefStore_Load`（含擦页 ~25ms）仅 `App_Init`（TIM2 启动前）可调；`RefStore_Save`（纯编程 ~6ms）仅主循环可调（训练时落在 50ms 不应期内）。ISR 只置标志（`HitDetect_RefRequestPersist`）。
+- **Flash 写只在主循环**：`RefStore_Load` 上电**纯读、不擦页**（页保留旧参考直到训练写入覆盖）；`RefStore_Save`（擦+写 ~31ms）仅主循环可调，由训练链路调用（落在 50ms 不应期内），ISR 内禁止碰 Flash。
 
 ## 12. 扩展配方（step-by-step 文件清单）
 
@@ -146,7 +146,7 @@ App/
 | **新增协议消息** | ① `board_comm.h` 分配固定 CAN ID；② `board_comm.c` 实现固定 DLC 的构造/解析；③ 同步 `Docs/CAN_PROTOCOL.md` 与《设计方案》第 9 章 |
 | **新增可调参数** | ① `hit_param_t` 加字段；② `Cal_GetDefaults` 默认值；③ 同步《设计方案》7.4。（**当前没有参数下行通道**——CAN 只有 LED 控制 0x00~0x04 五个命令；要在线改参数得先在 `Docs/CAN_PROTOCOL.md` 定义新的固定帧 ID） |
 | **新增灯效/状态** | ① `led_effect_t`/`sm_state_t` 加枚举值；② `led_status.c` 灯效生成；③ `state_machine.c` 转移条件；④ 同步《设计方案》8.2/11 章表 |
-| **新增 Flash 持久化** | ① 确认**不占用末页 `0x0801F800`**（ref_store 专用）；② 按 `bsp/ref_store.c` 的"上电载入+擦页 / 主循环纯编程"模式写，ISR 内禁止碰 Flash；③ CRC 覆盖全字段 |
+| **新增 Flash 持久化** | ① 确认**不占用末页 `0x0801F800`**（ref_store 专用）；② 按 `bsp/ref_store.c` 的模式写：上电纯读不擦页、写入时才先擦后写（~31ms，仅主循环），ISR 内禁止碰 Flash；③ CRC 覆盖全字段 |
 
 ## 13. 设计文档映射表
 

@@ -165,11 +165,6 @@ void App_Loop(void)
             App_Log_Printf("[CONF] rej corr=%u\r\n", (unsigned int)corr);
         }
     }
-    /* ③ 20s 校准超时沿用旧参考：补写 Flash（一次性 ~6ms 阻塞，仅此处主循环上下文）。 */
-    if (HitDetect_RefPersistPending())
-    {
-        HitDetect_RefPersist();
-    }
 
     BoardComm_Loop();
 

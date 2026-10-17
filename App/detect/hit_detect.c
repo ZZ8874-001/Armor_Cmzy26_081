@@ -93,7 +93,7 @@ static volatile uint32_t s_conf_ts_ms;               /* 本次触发时刻（事
 static volatile uint16_t s_conf_corr;                /* 本次确认的相关度 |ρ|×1024（判据本体） */
 static volatile uint8_t  s_corr_reject_pending;      /* 相关度拒绝待取标志（深度 1） */
 
-/* 参考样本（P27）：s_ref_sum 为原始副本（回写 Flash 用），s_ref_c 为去均值副本
+/* 参考样本（P27）：s_ref_sum 为原始副本（训练落盘 Flash 用），s_ref_c 为去均值副本
  * （相关计算用）。两者都在训练/载入时一次性固化，判定路径只读。 */
 static int32_t  s_ref_sum[HIT_WAVE_MAX];
 static int32_t  s_ref_c[HIT_WAVE_MAX];
@@ -101,7 +101,6 @@ static volatile uint16_t s_ref_n;                    /* 参考样本数（判定
 static volatile uint8_t  s_ref_valid;                /* 有可用参考（Flash 载入 或 本次训练） */
 static volatile uint8_t  s_ref_trained_boot;         /* 本次上电已训练（状态机紫闪退出条件） */
 static volatile uint64_t s_ref_norm;                 /* Σc²，训练/载入时预计算（归一化因子） */
-static volatile uint8_t  s_ref_persist_req;          /* 回写请求（状态机超时时置，主循环执行） */
 static volatile uint32_t s_ref_train_err;            /* 训练时落盘结果（RefStore_GetErr 快照） */
 static volatile uint8_t  s_ref_train_notice;         /* 训练完成通知待取标志（深度 1） */
 static volatile uint16_t s_ref_train_n;              /* 训练完成通知：样本数 */
@@ -251,7 +250,8 @@ static uint32_t Hit_CorrQ10(uint16_t n)
 
 /* 训练（热身后每上电第一次被接受的击打）：冻结窗 → 参考 → 落盘。
  * 热身未满直接返回（纵深防御：即使判据侧放行，被沉降瞬态污染的窗也不得固化）。
- * 只在主循环上下文调用（RefStore_Save 会阻塞 ~6ms），训练失败不占用本次机会。 */
+ * 只在主循环上下文调用（RefStore_Save 擦+写阻塞 ~31ms，落在 50ms 不应期内），
+ * 训练失败不占用本次机会。 */
 static void Hit_RefTrain(void)
 {
     if (s_ref_trained_boot != 0u || s_wave_total == 0u ||
@@ -632,15 +632,14 @@ void HitDetect_Init(const hit_param_t *p)
     s_fault_tick = 0u;
     s_boot_samples = 0u;
 
-    /* 参考样本：上电从 Flash 载入。RefStore_Load 内含页擦除（~25ms 阻塞）——
-     * 这是 HitDetect_Init 必须在 App_Init 内、TIM2 启动前调用的原因。
+    /* 参考样本：上电从 Flash 载入（纯读，不擦页——旧参考保留到本上电训练写入
+     * 时被覆盖；任何非写入时刻掉电都不丢参考，见 ref_store.h 方案 B）。
      * 载入成功 → 去均值固化（参考侧归一化到此完成）；失败 → 无参考，
      * 等本次上电第一次被接受的击打来训练。 */
     s_ref_n = 0u;
     s_ref_valid = 0u;
     s_ref_trained_boot = 0u;
     s_ref_norm = 0u;
-    s_ref_persist_req = 0u;
     s_ref_train_err = 0u;
     s_ref_train_notice = 0u;
     s_ref_train_n = 0u;
@@ -815,25 +814,6 @@ uint32_t HitDetect_GetWarmupMs(void)
     /* 1 样本 = 256µs → ms = samples × 256 / 1000（40960 → 10485ms）。
      * 状态机 Init 时缓存：既是紫闪 1Hz→5Hz 的相位翻转点，也是 20s 探测窗的起点。 */
     return (uint32_t)(((uint64_t)s_warmup_samples * 256u) / 1000u);
-}
-
-void HitDetect_RefRequestPersist(void)
-{
-    s_ref_persist_req = 1u;
-}
-
-bool HitDetect_RefPersistPending(void)
-{
-    return (s_ref_persist_req != 0u) ? true : false;
-}
-
-void HitDetect_RefPersist(void)
-{
-    s_ref_persist_req = 0u;
-    if (s_ref_valid == 0u || s_ref_n == 0u) { return; }
-
-    (void)RefStore_Save(s_ref_sum, s_ref_n);   /* 纯编程 ~6ms，仅主循环上下文 */
-    s_ref_train_err = RefStore_GetErr();
 }
 
 void HitDetect_UpdateParams(const hit_param_t *p)

@@ -65,17 +65,13 @@ static uint8_t Sm_RefPendingNeeded(void)
     return HitDetect_RefValid() ? 0u : 1u;
 }
 
-/* 退出校准回 NORMAL。本次上电没训练过就把 RAM 里的旧参考回写 Flash——本上电开头
- * RefStore_Load 已**无条件擦页**，不回写就等于把跨断电保留的参考清空了。
- * 所有"未训练即退出校准"的路径都必须走这里（含 BOOT 阶段被上位机打断的情况，
- * 那条路径原先直接置 NORMAL 而漏了回写）。参考无效时 HitDetect_RefPersist 自带
- * `s_ref_valid == 0 → return` 守卫，故无条件请求落盘是安全的。 */
+/* 退出校准回 NORMAL。方案 B（2026-10-17）：上电 Load 不再擦页，页里始终保留
+ * 旧参考，本上电唯一一次写入是训练击打的擦+写（Hit_RefTrain → RefStore_Save，
+ * 落在 50ms 不应期内）——因此"未训练即退出"无需任何回写，参考天然跨断电保留，
+ * 掉电窗口只剩写入进行中的 ~31ms（单页无备份，物理上无法避免）。
+ * 所有退出路径统一走这里，只负责置 NORMAL + 灯效。 */
 static void Sm_LeaveRefPending(void)
 {
-    if (!HitDetect_RefTrainedThisBoot())
-    {
-        HitDetect_RefRequestPersist();
-    }
     s_state = SM_STATE_NORMAL;
     s_state_ms = 0u;
     LedStatus_SetEffect(LED_EFF_NORMAL);
@@ -171,7 +167,7 @@ void StateMachine_Tick(void)
         break;
 
     case SM_STATE_REF_PENDING:
-        /* 只有校准门放行才会走到这里；未训练退出的路径由 Sm_LeaveRefPending 回写旧参考。 */
+        /* 只有校准门放行才会走到这里；Sm_LeaveRefPending 置 NORMAL（方案 B：无需回写，页里仍是旧参考）。 */
         Sm_LeaveRefPending();
         break;
 

@@ -75,15 +75,6 @@ bool HitDetect_RefValid(void);
 /* 本次上电是否已完成训练（状态机紫闪校准的退出条件之一；Flash 载入不算训练）。 */
 bool HitDetect_RefTrainedThisBoot(void);
 
-/* 请求把 RAM 中现有参考回写 Flash（20s 超时沿用旧值路径）。ISR 安全：只置标志。 */
-void HitDetect_RefRequestPersist(void);
-
-/* 是否有待回写请求（主循环轮询；ISR 安全）。 */
-bool HitDetect_RefPersistPending(void);
-
-/* 执行回写（纯编程 ~6ms 阻塞，仅主循环上下文；ISR 内禁止调用）。 */
-void HitDetect_RefPersist(void);
-
 /* 基线热身时长 ms（P01 s_bl 的 5τ；s_bl=13 → 40960 样本 → 10485ms）。
  * 状态机 Init 时取一次作紫闪 1Hz→5Hz 的相位翻转点与探测窗起点。 */
 uint32_t HitDetect_GetWarmupMs(void);

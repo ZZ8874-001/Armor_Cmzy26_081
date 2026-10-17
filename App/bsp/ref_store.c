@@ -119,10 +119,9 @@ bool RefStore_Load(int32_t *sum, uint16_t *n)
         *n = 0u;
     }
 
-    /* 无条件擦页：为本次上电最多一次 Save 腾出编程空间。
-     * 擦除与 Save 之间掉电 → 页为空 → 下次上电走首次训练路径（可接受的退化）。 */
-    Ref_Erase();
-    s_erased = (s_ref_err == 0u) ? 1u : 0u;   /* 擦除失败则保持"未擦"，后续 Save 会重试 */
+    /* 方案 B（2026-10-17）：不擦页。旧内容保留在 Flash 里直到本上电训练写入
+     * （RefStore_Save 内部先擦后写）。任何非写入时刻掉电都不丢参考——原"上电
+     * 擦页、退出才回写"的设计在 [擦页, 回写] 窗口内掉电会清空跨断电参考。 */
 
     return (ok != 0u) ? true : false;
 }
@@ -133,7 +132,8 @@ int RefStore_Save(const int32_t *sum, uint16_t n)
 
     if (sum == NULL || n == 0u || n > REF_STORE_MAX) { return -1; }
 
-    /* 防御性补擦：正常路径由 Load 完成；仅在异常调用序下多花 25ms */
+    /* 先擦后写（方案 B：Load 不再擦页，页里是旧内容，每次写入都须先擦）。
+     * 擦除失败 → 页保留旧内容 → 返回 -1，参考下次上电仍可载入。 */
     if (s_erased == 0u)
     {
         Ref_Erase();
