@@ -17,8 +17,8 @@ void Cal_GetDefaults(hit_param_t *p)
     p->s_bl           = 13u;
     p->win_len        = 32u;
     p->min_dur        = 4u;
-    p->thr_hit        = 200000;           /* M2 整定：真实击打 >1M、剧烈移动误报低于此档（余量 5 倍）；19N 标定后按 K_N 写入 */
-    p->refractory_ms  = 50u;
+    p->thr_hit        = 675000;           /* M2 整定：真实击打 >1M、剧烈移动误报低于此档（余量 5 倍）；19N 标定后按 K_N 写入 */
+    p->refractory_ms  = 200u;
 
     /* --- 标定与诊断 --- */
     p->k_n            = 0.0f;             /* 待标定 */
@@ -55,7 +55,7 @@ void Cal_GetDefaults(hit_param_t *p)
     p->wave_window    = 64u;              /* P22 上限：P21+P22 = 128 = HIT_WAVE_MAX（锁帧 32.8ms） */
     p->status_period_ms = 1000u;          /* 默认 1Hz，由裁判系统仲裁确定、可调 */
     p->dif_depth       = 16u;             /* P25 差分高通深度：16 样本=4.1ms，截止≈39Hz（M2 修订） */
-    p->settle_depth    = 16u;             /* P26 沉降门控：不应期后连续低于阈值 16 样本（4.1ms）才重新武装 */
+    p->settle_depth    = 64u;             /* P26 沉降门控：不应期后连续低于阈值 16 样本（4.1ms）才重新武装 */
 
     /* --- 触发后确认（P27）：默认值一律偏向"接受"——漏报（实击被拒）比误报更严重，
      * 收紧前必须先在台架采相关度分布（s_conf_corr 为可观察标量 + USART1 日志）。 --- */

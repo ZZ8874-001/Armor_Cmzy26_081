@@ -60,6 +60,8 @@ _Static_assert(REF_STORE_MAX >= HIT_WAVE_MAX, "ref_store 容量小于冻结窗�
 #define HIT_FS_25PCT      2097152              /* 25% 满量程（2^23/4）：偏置异常判据 */
 #define HIT_REF_PERIOD_MS 100u                 /* 健康评估节拍（50ms 分频 ×2 累计到 100ms） */
 #define HIT_FAULT_RETRY_MS 5000u               /* 故障自动重试周期 */
+#define HIT_CORR_RING_MAX 64u                  /* 相关度环形记录深度（P27 整定分布观察） */
+#define HIT_PEAK_RING_MAX 64u                  /* 峰值环形记录深度（事件幅值观察） */
 
 /* ==================== 状态机 ==================== */
 typedef enum
@@ -92,6 +94,11 @@ static volatile uint8_t  s_confirm_done;             /* 冻结窗已满（Hit_Fr
 static volatile uint32_t s_conf_ts_ms;               /* 本次触发时刻（事件/拒绝共用） */
 static volatile uint16_t s_conf_corr;                /* 本次确认的相关度 |ρ|×1024（判据本体） */
 static volatile uint32_t s_conf_pk_idx;              /* 本次确认的 |hp_sum| 峰值索引（校准合法性判据） */
+static volatile uint32_t s_conf_peak;                /* 本次确认的事件峰值 = |dif_sum| 峰值（[HIT] 日志 sum_peak=） */
+static uint16_t s_corr_ring[HIT_CORR_RING_MAX];      /* 相关度环形记录（最近 64 次确认；Ozone 展开看分布） */
+static volatile uint8_t s_corr_ring_wr;              /* 环形写指针：ring[wr]=最旧，ring[wr-1]=最新 */
+static uint32_t s_peak_ring[HIT_PEAK_RING_MAX];      /* 峰值环形记录（最近 64 次确认，口径同 s_conf_peak） */
+static volatile uint8_t s_peak_ring_wr;              /* 环形写指针：ring[wr]=最旧，ring[wr-1]=最新 */
 static volatile uint8_t  s_corr_reject_pending;      /* 相关度拒绝待取标志（深度 1） */
 static volatile uint8_t  s_cal_rej_pending;          /* 校准合法性拒绝待取标志（深度 1，上报峰值 idx） */
 
@@ -507,6 +514,7 @@ static void Hit_TriggerStart(void)
     s_confirm_done = 0u;
     s_conf_corr = 0u;
     s_conf_pk_idx = 0u;
+    s_conf_peak = 0u;
     Hit_FreezeStart();
     s_hit_state = HIT_ST_CONFIRMING;
 }
@@ -516,6 +524,7 @@ static void Hit_TriggerStart(void)
 static void Hit_ConfirmAbort(void)
 {
     s_conf_corr = 0u;
+    s_conf_peak = 0u;
     s_confirm_done = 0u;
     s_conf_abort_cnt++;
 
@@ -535,6 +544,7 @@ static void Hit_ConfirmRun(void)
     s_confirm_done = 0u;
     Hit_ConfirmEval(&ft);
     s_conf_pk_idx = ft.sum_pk_idx;
+    s_conf_peak = ft.dif_pk;
     corr_q10 = Hit_CorrQ10(s_wave_total);
     warmup_elapsed = (s_boot_samples >= s_warmup_samples) ? 1u : 0u;
 
@@ -556,8 +566,17 @@ static void Hit_ConfirmRun(void)
               s_p.corr_min_q10 > 0u &&
               corr_q10 < (uint32_t)s_p.corr_min_q10) ? 1u : 0u;
 
+    s_ref_trained_boot = 0;
+    
     s_conf_corr = (uint16_t)corr_q10;    /* 判据本体（Ozone / 日志观察） */
 
+    /* 环形记录（P27/幅度整定用）：每次确认（接受与拒绝都算）各压一帧。
+     * 拒绝路径只在此之后，故记录覆盖两类样本；中止路径不产生样本（不压 0）。 */
+    s_corr_ring[s_corr_ring_wr] = s_conf_corr;
+    s_corr_ring_wr = (uint8_t)((s_corr_ring_wr + 1u) % HIT_CORR_RING_MAX);
+    s_peak_ring[s_peak_ring_wr] = s_conf_peak;
+    s_peak_ring_wr = (uint8_t)((s_peak_ring_wr + 1u) % HIT_PEAK_RING_MAX);
+ 
     if (reject == 0u)
     {
         /* ---- 接受：填事件入队（深度 1） ---- */
@@ -648,6 +667,11 @@ void HitDetect_Init(const hit_param_t *p)
     s_conf_ts_ms = 0u;
     s_conf_corr = 0u;
     s_conf_pk_idx = 0u;
+    s_conf_peak = 0u;
+    memset(s_corr_ring, 0, sizeof(s_corr_ring));
+    s_corr_ring_wr = 0u;
+    memset(s_peak_ring, 0, sizeof(s_peak_ring));
+    s_peak_ring_wr = 0u;
     s_hit_trig_cnt = 0u;
     s_conf_reject_cnt = 0u;
     s_conf_abort_cnt = 0u;
