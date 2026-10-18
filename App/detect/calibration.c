@@ -17,7 +17,7 @@ void Cal_GetDefaults(hit_param_t *p)
     p->s_bl           = 13u;
     p->win_len        = 32u;
     p->min_dur        = 4u;
-    p->thr_hit        = 675000;           /* M2 整定：真实击打 >1M、剧烈移动误报低于此档（余量 5 倍）；19N 标定后按 K_N 写入 */
+    p->thr_hit        = 675000;             /*滑动窗幅度触发阈值 */
     p->refractory_ms  = 200u;
 
     /* --- 标定与诊断 --- */
