@@ -128,6 +128,19 @@ bool HitDetect_GetWaveTx(hit_wave_tx_t *info, int32_t *hp, uint16_t *n);
  * （flash_err：0=成功，其余见 RefStore_GetErr）。 */
 bool HitDetect_GetTrainedNotice(uint16_t *n, uint32_t *flash_err);
 
+/* 用宿主推送的合力窗立即替换参考（HCMD SET_REFERENCE，主循环专用）：
+ * 校验窗长 == P21+P22、拒绝锁帧确认中/平窗后，先装入 RAM（置位本上电已训练，
+ * 立即参与相关度判定）再落盘页 63。
+ * 返回 0=RAM 安装且落盘成功；1=RAM 安装但落盘失败（仍生效）；负值=拒绝，
+ * RAM 与 Flash 均未动（-1 参数空，-2 窗长不匹配，-3 平窗，-4 确认中）。 */
+int HitDetect_SetReference(const int32_t *sum, uint16_t n, uint32_t *flash_err);
+
+/* 当前冻结窗长度（P21+P22），宿主推送前校验用。 */
+uint16_t HitDetect_GetWindowLen(void);
+
+/* 锁帧后正在等 P22 个触发后样本（Flash 擦写会打断本次确认）。 */
+bool HitDetect_IsConfirming(void);
+
 /* 运行时更新参数。 */
 void HitDetect_UpdateParams(const hit_param_t *p);
 

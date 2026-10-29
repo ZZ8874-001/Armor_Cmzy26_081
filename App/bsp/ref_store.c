@@ -161,6 +161,7 @@ int RefStore_Save(const int32_t *sum, uint16_t n)
         {
             s_ref_err = 2u;
             (void)HAL_FLASH_Lock();
+            s_erased = 0u;      /* 页已半写：下次 Save 必须重擦，否则双写损坏内容 */
             return -1;
         }
     }

@@ -44,7 +44,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app import analyzer  # noqa: E402
 from app.main_window import MainWindow  # noqa: E402
-from app.sources import FileReplayWorker  # noqa: E402
+from app.sources import FileReplayWorker, SerialWorker  # noqa: E402
 
 
 def pump(app: QApplication, seconds: float) -> None:
@@ -214,6 +214,54 @@ def main() -> None:
     assert by1 > by2 + 10 and bx1 < bx2 - 10, \
         f"热图方向异常：(1,1)@({bx1:.0f},{by1:.0f}) vs (4,4)@({bx2:.0f},{by2:.0f})"
 
+    # ---- HCMD 命令 UI：嵌套选项卡 + 门控 + ACK 路由 ----
+    assert window.analysis_tabs.count() == 3, \
+        f"嵌套选项卡数 {window.analysis_tabs.count()}"
+    titles = [window.analysis_tabs.tabText(i)
+              for i in range(window.analysis_tabs.count())]
+    assert titles == ["定位标定", "击打参数", "参照替换"], titles
+    assert not window._btn_param_write.isEnabled(), "回放模式下参数写入按钮应禁用"
+    assert not window._btn_ref_write.isEnabled(), "回放模式下参照按钮应禁用"
+    assert window._serial_ready is False
+    assert "n=128" in window.ref_frame_label.text(), window.ref_frame_label.text()
+    assert "trig=" in window.ref_frame_label.text(), window.ref_frame_label.text()
+
+    # 假连接状态走真实 ACK 路由（串口对象不启动、不发任何字节）
+    window.worker = SerialWorker("COM_DOES_NOT_EXIST", 921600)
+    window._serial_ready = True
+    window._update_command_buttons()
+    try:
+        assert window._btn_param_write.isEnabled(), "串口模式下按钮应使能"
+        window._handle_cmd_line(
+            "[CMD] params P01=14 P03=5 P04=30000 P05=250 P26=80 P27=700")
+        assert window._param_spins["P01"].value() == 14
+        assert window._param_spins["P04"].value() == 30000
+        assert window._param_spins["P27"].value() == 700
+        assert "params" in window.params_cmd_status.text()
+        window._handle_cmd_line("[CMD] err set-params P05=5 range=50..1000")
+        assert "err" in window.params_cmd_status.text(), \
+            window.params_cmd_status.text()
+        window._handle_cmd_line("[CMD] ok save seq=1 err=0")
+        assert "seq=1" in window.params_save_label.text(), \
+            window.params_save_label.text()
+        window._handle_cmd_line("[CMD] ok ref n=128 flash=0")
+        assert "n=128" in window.ref_cmd_status.text(), window.ref_cmd_status.text()
+
+        # 链发存档：参数同步 ok 后自动发 save
+        calls: list = []
+        window._send_command = lambda verb, data: calls.append(verb) or True
+        window._cmd_chain_save = True
+        window._handle_cmd_line(
+            "[CMD] ok set-params P01=13 P03=4 P04=25000 P05=200 P26=64 P27=609")
+        assert calls == ["save"], calls
+    finally:
+        window._cmd_chain_save = False
+        window._cmd_inflight = None
+        window.worker = None
+        window._serial_ready = False
+        window._update_command_buttons()
+        assert not window._btn_param_write.isEnabled(), "断开后按钮应回到禁用"
+
     # ---- 通道映射改动即时生效（同时使落点分析降级而非崩溃） ----
     window._map_combos["1"].setCurrentIndex(2)   # ch1 → c
     pump(app, 0.05)
@@ -225,7 +273,8 @@ def main() -> None:
     calib_file2.unlink(missing_ok=True)
     window.close()
     print("GUI smoke OK：3 帧入库、2 CRC 错、曲线上屏、双页签、"
-          "未标定提示、合成标定定位、历史点、热图方向、标定工作流、映射联动正常")
+          "未标定提示、合成标定定位、历史点、热图方向、标定工作流、"
+          "嵌套选项卡与 HCMD 命令 UI、映射联动正常")
 
 
 if __name__ == "__main__":

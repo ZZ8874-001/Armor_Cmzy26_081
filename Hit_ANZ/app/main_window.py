@@ -14,7 +14,7 @@ import html
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QTableWidget, QTableWidgetItem, QToolBar, QVBoxLayout, QWidget,
 )
 
-from . import analyzer
+from . import analyzer, commands
 from .plot_widget import WavePlot
 from .protocol import FrameParser
 from .settings import SENSOR_NAMES, Settings
@@ -48,6 +48,13 @@ class MainWindow(QMainWindow):
         self._calib_data = None         # 已载入/刚保存的 CalibData
         self._calib_acc = None          # 标定模式下的采集器
         self._last_loc = None           # 最近一次分析的 LocResult
+        self._serial_ready = False      # HCMD：串口已打开（命令使能门）
+        self._cmd_inflight = None       # HCMD：在飞命令 verb（一次一令）
+        self._cmd_chain_save = False    # HCMD：参数同步成功后链发存档
+        self._cmd_timer = QTimer(self)  # HCMD：2s 回执超时
+        self._cmd_timer.setSingleShot(True)
+        self._cmd_timer.setInterval(2000)
+        self._cmd_timer.timeout.connect(self._on_cmd_timeout)
 
         self._build_toolbar()
         self._build_central()
@@ -380,21 +387,256 @@ class MainWindow(QMainWindow):
         pv.addWidget(gb_cal)
         pv.addStretch(1)
 
+        # 右侧嵌套选项卡：定位标定（现面板原样搬入）/ 击打参数 / 参照替换
+        # （勿改名为 self.tabs——外层页签 smoke 断言 count==2）
+        self.analysis_tabs = QTabWidget()
+        self.analysis_tabs.setFixedWidth(380)
+        self.analysis_tabs.addTab(self._scroll_wrap(panel), "定位标定")
+        self.analysis_tabs.addTab(self._scroll_wrap(self._build_params_tab()),
+                                  "击打参数")
+        self.analysis_tabs.addTab(self._scroll_wrap(self._build_ref_tab()),
+                                  "参照替换")
+        h.addWidget(self.analysis_tabs)
+
+        self._set_calib_buttons(False)
+        self._update_command_buttons()
+        return page
+
+    @staticmethod
+    def _scroll_wrap(widget: QWidget) -> QScrollArea:
         scroll = QScrollArea()
-        scroll.setWidget(panel)
+        scroll.setWidget(widget)
         scroll.setWidgetResizable(True)
         scroll.setFixedWidth(360)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        h.addWidget(scroll)
+        return scroll
 
-        self._set_calib_buttons(False)
-        return page
+    def _build_params_tab(self) -> QWidget:
+        """击打参数页：精选 6 参数 spinbox + 读/写/存档/恢复默认（HCMD）。"""
+        panel = QWidget()
+        panel.setFixedWidth(340)
+        pv = QVBoxLayout(panel)
+        pv.setContentsMargins(4, 0, 4, 4)
+
+        gb = QGroupBox("在线击打参数（写入即生效，掉电丢失）")
+        f = QFormLayout(gb)
+        self._param_spins: dict[str, QSpinBox] = {}
+        for spec in commands.PARAM_SPECS:
+            spin = QSpinBox()
+            spin.setRange(spec.lo, spec.hi)
+            spin.setSingleStep(spec.step)
+            spin.setValue(spec.default)
+            spin.setSuffix(f" {spec.unit}")
+            f.addRow(f"{spec.key} {spec.label}", spin)
+            self._param_spins[spec.key] = spin
+        pv.addWidget(gb)
+
+        self.params_cmd_status = QLabel("未连接（命令仅串口模式可用）")
+        self.params_cmd_status.setWordWrap(True)
+        self.params_cmd_status.setStyleSheet("color: #78909c;")
+        pv.addWidget(self.params_cmd_status)
+
+        self.params_save_label = QLabel("Flash 存档：未读取")
+        self.params_save_label.setWordWrap(True)
+        pv.addWidget(self.params_save_label)
+
+        self._btn_param_read = QPushButton("读取当前值")
+        self._btn_param_write = QPushButton("写入（生效）")
+        self._btn_param_save = QPushButton("存档到 Flash")
+        self._btn_param_defaults = QPushButton("恢复默认")
+        self._btn_param_read.clicked.connect(self._on_params_read)
+        self._btn_param_write.clicked.connect(self._on_params_write)
+        self._btn_param_save.clicked.connect(self._on_params_save)
+        self._btn_param_defaults.clicked.connect(self._on_params_defaults)
+        row1 = QHBoxLayout()
+        row1.addWidget(self._btn_param_read)
+        row1.addWidget(self._btn_param_write)
+        row2 = QHBoxLayout()
+        row2.addWidget(self._btn_param_save)
+        row2.addWidget(self._btn_param_defaults)
+        pv.addLayout(row1)
+        pv.addLayout(row2)
+
+        hint = QLabel(
+            "提示：值不保存到本机 config.json，板子才是真值，重连后按「读取当前值」"
+            "同步。P01 改动会重算基线热身；P27=0 时相关度只统计不判拒；"
+            "P21/P22 不开放（改窗长会毁参照与标定签名）。")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #78909c;")
+        pv.addWidget(hint)
+        pv.addStretch(1)
+        return panel
+
+    def _build_ref_tab(self) -> QWidget:
+        """参照替换页：选帧 → 确认 → SET_REFERENCE（立即生效）。"""
+        panel = QWidget()
+        panel.setFixedWidth(340)
+        pv = QVBoxLayout(panel)
+        pv.setContentsMargins(4, 0, 4, 4)
+
+        gb = QGroupBox("Flash 参照替换（立即生效）")
+        f = QFormLayout(gb)
+        self.ref_frame_label = QLabel("未选择帧")
+        self.ref_frame_label.setWordWrap(True)
+        f.addRow("当前帧", self.ref_frame_label)
+        self.ref_warn_label = QLabel("")
+        self.ref_warn_label.setWordWrap(True)
+        self.ref_warn_label.setStyleSheet("color: #e53935;")
+        f.addRow(self.ref_warn_label)
+        pv.addWidget(gb)
+
+        self._btn_ref_write = QPushButton("写入参照（立即生效）")
+        self._btn_ref_write.clicked.connect(self._on_ref_write)
+        pv.addWidget(self._btn_ref_write)
+
+        self.ref_cmd_status = QLabel("未连接")
+        self.ref_cmd_status.setWordWrap(True)
+        self.ref_cmd_status.setStyleSheet("color: #78909c;")
+        pv.addWidget(self.ref_cmd_status)
+
+        hint = QLabel(
+            "把历史帧下拉框所选击打的四通道 hp 求和窗推给板子，替换 Flash 页 63 "
+            "参照并置位「本上电已训练」：立即参与相关度判定（基线热身 5τ 内仍不判拒）。"
+            "坏参照恢复 = 再推一帧好参照；清空参照需调试器（命令通道不提供）。")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #78909c;")
+        pv.addWidget(hint)
+        pv.addStretch(1)
+        return panel
 
     def _build_statusbar(self) -> None:
         self._status_source = QLabel("未连接")
         self._status_stats = QLabel("")
         self.statusBar().addWidget(self._status_source, 1)
         self.statusBar().addPermanentWidget(self._status_stats)
+
+    # ================= HCMD 命令通道 =================
+    def _update_command_buttons(self) -> None:
+        connected = (isinstance(self.worker, SerialWorker)
+                     and self._serial_ready)
+        for btn in (self._btn_param_read, self._btn_param_write,
+                    self._btn_param_save, self._btn_param_defaults,
+                    self._btn_ref_write):
+            btn.setEnabled(connected)
+
+    def _send_command(self, verb: str, data: bytes) -> bool:
+        if not (isinstance(self.worker, SerialWorker) and self._serial_ready):
+            self._log("未连接串口，命令未发送", "warn")
+            return False
+        if self._cmd_inflight is not None:
+            self._log(f"上一条命令（{self._cmd_inflight}）未收到回执，忽略", "warn")
+            return False
+        if not self.worker.send(data):
+            self._log("串口写入失败", "warn")
+            return False
+        self._cmd_inflight = verb
+        self._cmd_timer.start()
+        return True
+
+    def _on_cmd_timeout(self) -> None:
+        if self._cmd_inflight is None:
+            return
+        self._log(f"命令 {self._cmd_inflight} 超时（板未应答）", "warn")
+        self.params_cmd_status.setText(f"命令超时（{self._cmd_inflight}）")
+        self.params_cmd_status.setStyleSheet("color: #e53935;")
+        self._cmd_inflight = None
+        self._cmd_chain_save = False
+
+    def _handle_cmd_line(self, line: str) -> None:
+        """把板子 ACK 文本行路由到命令状态机（仅串口模式生效）。"""
+        if not (isinstance(self.worker, SerialWorker) and self._serial_ready):
+            return
+        ack = commands.parse_cmd_line(line)
+        if ack is None:
+            return
+        if ack.verb in ("params", "set-params", "defaults") and ack.params:
+            self._apply_params_to_spins(ack.params)
+        color = "#43a047" if ack.ok else "#e53935"
+        text = ack.text.removeprefix("[CMD] ")
+        if ack.verb == "save":
+            self.params_save_label.setText(f"Flash 存档：{text}")
+        elif ack.verb == "ref":
+            self.ref_cmd_status.setText(text)
+            self.ref_cmd_status.setStyleSheet(f"color: {color};")
+        else:
+            self.params_cmd_status.setText(text)
+            self.params_cmd_status.setStyleSheet(f"color: {color};")
+        self._cmd_inflight = None
+        self._cmd_timer.stop()
+        if ack.ok and ack.verb == "set-params" and self._cmd_chain_save:
+            self._cmd_chain_save = False
+            if self._send_command("save", commands.build_save_params()):
+                self.params_save_label.setText("Flash 存档：写入中…")
+
+    def _apply_params_to_spins(self, params: dict) -> None:
+        prev = self._loading
+        self._loading = True
+        try:
+            for key, value in params.items():
+                spin = self._param_spins.get(key)
+                if spin is not None:
+                    spec = commands.PARAM_SPECS_BY_KEY[key]
+                    spin.setValue(min(spec.hi, max(spec.lo, int(value))))
+        finally:
+            self._loading = prev
+
+    def _params_from_spins(self) -> dict:
+        return {key: spin.value() for key, spin in self._param_spins.items()}
+
+    def _on_params_read(self) -> None:
+        if self._send_command("get-params", commands.build_get_params()):
+            self.params_cmd_status.setText("已发送读取请求，等待回执…")
+            self.params_cmd_status.setStyleSheet("color: #78909c;")
+
+    def _on_params_write(self) -> None:
+        try:
+            data = commands.build_set_params(self._params_from_spins())
+        except ValueError as exc:
+            self._log(f"参数越界：{exc}", "warn")
+            return
+        if self._send_command("set-params", data):
+            self.params_cmd_status.setText("已发送，等待回执…")
+            self.params_cmd_status.setStyleSheet("color: #78909c;")
+
+    def _on_params_save(self) -> None:
+        try:
+            data = commands.build_set_params(self._params_from_spins())
+        except ValueError as exc:
+            self._log(f"参数越界：{exc}", "warn")
+            return
+        if self._send_command("set-params", data):
+            self._cmd_chain_save = True
+            self.params_save_label.setText("Flash 存档：先同步参数…")
+
+    def _on_params_defaults(self) -> None:
+        if self._send_command("defaults", commands.build_set_defaults()):
+            self.params_cmd_status.setText("已发送恢复默认，等待回执…")
+            self.params_cmd_status.setStyleSheet("color: #78909c;")
+
+    def _on_ref_write(self) -> None:
+        frame = self._current_frame()
+        if frame is None:
+            self._log("没有可选帧，无法写入参照", "warn")
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("写入参照")
+        box.setText(f"将帧 #trig {frame.trig_id}（n={frame.n}，"
+                    f"{frame.type_name}）的四通道求和窗写入板子 Flash 页 63 "
+                    "并立即生效。")
+        box.setInformativeText("坏参照会把真实击打判拒，直到再推一帧好参照。确认？")
+        box.setStandardButtons(QMessageBox.StandardButton.Yes
+                               | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            data = commands.build_set_ref(frame)
+        except ValueError as exc:
+            self._log(f"该帧无法作为参照：{exc}", "warn")
+            return
+        if self._send_command("ref", data):
+            self.ref_cmd_status.setText("已发送，等待回执…")
+            self.ref_cmd_status.setStyleSheet("color: #78909c;")
 
     # ================= 设置应用 / 保存 =================
     def _apply_settings_to_widgets(self) -> None:
@@ -591,6 +833,12 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_worker_finished)
         worker.start()
 
+        self._serial_ready = False
+        self._cmd_inflight = None
+        self._cmd_chain_save = False
+        self._cmd_timer.stop()
+        self._update_command_buttons()
+
         self._status_source.setText("连接中…")
         self.act_connect.setEnabled(False)
         self.act_disconnect.setEnabled(True)
@@ -600,6 +848,8 @@ class MainWindow(QMainWindow):
         worker = self.worker
         if worker is None:
             return
+        self._serial_ready = False
+        self._update_command_buttons()
         worker.stop()
         if not worker.wait(3000):
             self._log("工作线程未在 3 秒内退出（继续等待）", "warn")
@@ -613,9 +863,16 @@ class MainWindow(QMainWindow):
     def _on_source_opened(self, desc: str) -> None:
         self._status_source.setText(desc)
         self._log(f"数据源已打开：{desc}")
+        self._serial_ready = isinstance(self.worker, SerialWorker)
+        self._update_command_buttons()
 
     def _on_source_closed(self) -> None:
         self._status_source.setText("未连接")
+        self._serial_ready = False
+        self._cmd_inflight = None
+        self._cmd_chain_save = False
+        self._cmd_timer.stop()
+        self._update_command_buttons()
 
     def _on_worker_finished(self) -> None:
         if self.sender() is self.worker:
@@ -623,6 +880,8 @@ class MainWindow(QMainWindow):
         self.act_connect.setEnabled(True)
         self.act_disconnect.setEnabled(False)
         self.act_replay.setEnabled(True)
+        self._serial_ready = False
+        self._update_command_buttons()
 
     # ================= 数据到达 =================
     def _on_chunk(self, data: bytes) -> None:
@@ -631,6 +890,7 @@ class MainWindow(QMainWindow):
         frames, lines = self.parser.feed(data)
         for line in lines:
             self._log(line)
+            self._handle_cmd_line(line)
         for frame in frames:
             gap = self.store.add_frame(frame)
             self._log(f"[帧 #{frame.seq}] {frame.summary()}", "frame")
@@ -687,7 +947,22 @@ class MainWindow(QMainWindow):
             f"flags 0x{frame.flags:02x}｜corr {frame.corr_q10}｜pk_idx {frame.pk_idx}｜"
             f"peak_dif {frame.peak_dif}｜peak_ch {list(frame.peak_ch)}｜"
             f"触发样本 @{frame.trig_index(self.settings.p22)}｜{names}")
+        self._update_ref_labels(frame)
         self._refresh_analysis()
+
+    def _update_ref_labels(self, frame) -> None:
+        """参照替换页的当前帧信息 + 适宜性警告。"""
+        self.ref_frame_label.setText(
+            f"#{frame.seq} trig={frame.trig_id} n={frame.n} "
+            f"{frame.type_name} corr={frame.corr_q10} pk_idx={frame.pk_idx}")
+        warns = []
+        if frame.type == 2:
+            warns.append("该帧曾被相关度拒绝——仅在确认是真实击打时使用")
+        if 0 < frame.pk_idx < 5 or frame.pk_idx + 5 >= frame.n:
+            warns.append("峰值贴窗边，形状可能不完整，通常不适合作为参照")
+        if frame.n != 128:
+            warns.append(f"窗长 n={frame.n} ≠ 128：与板子当前 P21+P22 不一致会被拒绝")
+        self.ref_warn_label.setText("\n".join(warns))
 
     # ================= 落点分析 =================
     def _refresh_analysis(self) -> None:

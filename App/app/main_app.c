@@ -19,6 +19,7 @@
 #include "comm/app_can.h"
 #include "comm/app_log.h"
 #include "comm/board_comm.h"
+#include "comm/host_cmd.h"
 #include "app/state_machine.h"
 #include "app/led_status.h"
 #include "app/faults.h"
@@ -147,11 +148,14 @@ void App_Init(void)
 {
     ResetCause_Init();
 
-    /* 参数：骨架阶段用默认值；TODO(Step 5)：Cal_Load 从 Flash 恢复标定值。 */
-    Cal_GetDefaults(&s_param);
+    /* 参数：从 Flash 页 62/61 双槽恢复（无有效记录回退默认值）。 */
+    Cal_Load(&s_param);
 
     App_Log_Init();
     App_Log_Printf("\r\nApp skeleton OK (v0.1)\r\n");
+    App_Log_Printf("[CAL] %s seq=%lu\r\n",
+                   Cal_LoadedFromFlash() ? "load" : "defaults",
+                   (unsigned long)Cal_GetSeq());
 
     Fault_Init();              /* 故障注册表 + PVD（FAULT_POWER 通路），先于故障源初始化 */
     App_Can_Init();            /* CAN 启动 + 通知使能（Step 4 补齐发送/分发） */
@@ -170,6 +174,7 @@ void App_Init(void)
     LedStatus_SetBrightness(s_param.brightness);
     StateMachine_Init();       /* Step 3：BOOT→NORMAL/HIT/FAULT 基础版 */
     BoardComm_Init();          /* 固定帧 CAN 协议初始化 */
+    HostCmd_Init();            /* USART1 RX 武装：上位机 HCMD 下行命令通道 */
 
     /* 上电自检（7.6）：非阻塞，结果经故障位图/STATUS_REPLY 反映；
      * ADC 初始化失败时不发起（sticky FAULT_SPI 已直接进入 FAULT 链路）。 */
@@ -287,6 +292,8 @@ void App_Loop(void)
         }
     }
 
+    HostCmd_Loop();    /* 上位机命令：解析/派发（Flash 写仅此处主循环上下文） */
+
     BoardComm_Loop();
 
     /* PVD 欠压恢复（自 44bfd88 通信层上移，行为不变）：
@@ -357,4 +364,34 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     {
         App_OnTick1ms();
     }
+}
+
+/* ==================== 参数访问（host_cmd 经此改参数；检测层不依赖 comm） ==================== */
+
+/* 取当前参数副本（NULL 安全）。 */
+void App_GetParams(hit_param_t *out)
+{
+    if (out != NULL)
+    {
+        *out = s_param;
+    }
+}
+
+/* 应用参数（HCMD SET_PARAMS/SET_DEFAULTS，主循环上下文）：
+ * 短临界区拷副本（TIM2 1kHz ISR 不读 s_param，但保持原子以防将来），
+ * 然后推到检测/温度模块。team_color/brightness/evt_enable 不在精选集内，
+ * 由加载/默认路径维护。 */
+void App_ApplyHostParams(const hit_param_t *p)
+{
+    uint32_t pm;
+
+    if (p == NULL) { return; }
+
+    pm = __get_PRIMASK();
+    __disable_irq();
+    s_param = *p;
+    __set_PRIMASK(pm);
+
+    HitDetect_UpdateParams(&s_param);
+    TempMon_UpdateParams(&s_param);
 }

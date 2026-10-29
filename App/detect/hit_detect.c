@@ -911,6 +911,63 @@ bool HitDetect_RefTrainedThisBoot(void)
     return (s_ref_trained_boot != 0u) ? true : false;
 }
 
+/* 宿主推送参考（HCMD SET_REFERENCE，主循环专用）：先验窗长/锁帧状态/平窗，
+ * 再 Hit_RefFix 装入 RAM 并置位本上电已训练（立即参与相关度判定），最后落盘。
+ * 落盘失败仍生效（s_ref_train_err 可查、notice 照发）——参考在 RAM 里是好的，
+ * 只是掉电后回退到旧参考。 */
+int HitDetect_SetReference(const int32_t *sum, uint16_t n, uint32_t *flash_err)
+{
+    uint64_t sq = 0u;
+    uint16_t i;
+
+    if (flash_err != NULL) { *flash_err = 0u; }
+    if (sum == NULL) { return -1; }
+    if (n == 0u || n > HIT_WAVE_MAX ||
+        n != (uint16_t)((uint16_t)s_p.ring_depth + s_p.wave_window))
+    {
+        return -2;    /* 窗长必须 == 当前 P21+P22，否则相关度恒 0（Hit_CorrQ10） */
+    }
+    if (s_hit_state == HIT_ST_CONFIRMING) { return -4; }   /* 31ms 停摆会打断锁帧窗 */
+
+    /* 先验平窗：均方差不碰现参照，拒绝时不摧毁好参照。 */
+    {
+        int64_t mean = 0;
+
+        for (i = 0u; i < n; i++) { mean += (int64_t)sum[i]; }
+        mean /= (int64_t)n;
+        for (i = 0u; i < n; i++)
+        {
+            int32_t c = (int32_t)((int64_t)sum[i] - mean);
+
+            sq += (uint64_t)((int64_t)c * c);
+        }
+    }
+    if (sq == 0u) { return -3; }
+
+    Hit_RefFix(sum, n);
+    if (s_ref_valid == 0u) { return -3; }
+
+    /* 先置训练位再落盘：REF_PENDING 状态机 1 tick 内经"训练完成"路径退出。 */
+    s_ref_trained_boot = 1u;
+    s_ref_train_n = s_ref_n;
+    (void)RefStore_Save(s_ref_sum, s_ref_n);
+    s_ref_train_err = RefStore_GetErr();
+    s_ref_train_notice = 1u;
+
+    if (flash_err != NULL) { *flash_err = (uint32_t)s_ref_train_err; }
+    return (s_ref_train_err == 0u) ? 0 : 1;
+}
+
+uint16_t HitDetect_GetWindowLen(void)
+{
+    return (uint16_t)((uint16_t)s_p.ring_depth + s_p.wave_window);
+}
+
+bool HitDetect_IsConfirming(void)
+{
+    return (s_hit_state == HIT_ST_CONFIRMING) ? true : false;
+}
+
 uint32_t HitDetect_GetWarmupMs(void)
 {
     /* 1 样本 = 256µs → ms = samples × 256 / 1000（40960 → 10485ms）。
@@ -925,7 +982,7 @@ void HitDetect_UpdateParams(const hit_param_t *p)
         s_p = *p;
         Hit_ClampParams(&s_p);
         Hit_WarmupRecompute();      /* s_bl 可能变了 → 热身时长随之重算 */
-        s_hit_thr = p->thr_hit;
+        s_hit_thr = s_p.thr_hit;    /* 用钳位后的副本（当前等价，语义明确） */
     }
 }
 

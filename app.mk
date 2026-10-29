@@ -7,12 +7,14 @@ App/bsp/ads131m04.c \
 App/bsp/ws2812_uart.c \
 App/bsp/temp_mon.c \
 App/bsp/ref_store.c \
+App/bsp/flash_store.c \
 App/detect/hit_detect.c \
 App/detect/calibration.c \
 App/comm/app_can.c \
 App/comm/app_log.c \
 App/comm/can_node.c \
 App/comm/board_comm.c \
+App/comm/host_cmd.c \
 App/app/state_machine.c \
 App/app/led_status.c \
 App/app/faults.c \

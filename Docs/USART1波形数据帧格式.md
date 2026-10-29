@@ -1,14 +1,14 @@
-# USART1 冻结窗波形数据帧格式
+# USART1 冻结窗波形数据帧格式 + HCMD 下行命令帧
 
-版本 **v1.0**（2026-10-28）。权威实现：`App/app/main_app.c` 的 `Wave_BuildAndSend`（组帧 + CRC）
-与 `App/detect/hit_detect.c` 的 `Hit_ConfirmRun`（快照）/`HitDetect_GetWaveTx`（导出）。
-本文件与代码不一致时以代码为准，并回来修正本文件。
+版本 **v1.1**（2026-10-29）。权威实现：`App/app/main_app.c` 的 `Wave_BuildAndSend`（组帧 + CRC）
+与 `App/detect/hit_detect.c` 的 `Hit_ConfirmRun`（快照）/`HitDetect_GetWaveTx`（导出）；
+HCMD 下行通道见 `App/comm/host_cmd.c`（§8）。本文件与代码不一致时以代码为准，并回来修正本文件。
 
 ## 1. 概述
 
 | 项 | 值 |
 |---|---|
-| 物理层 | USART1，PA9 TX / PA10 RX（连接器 U18），**921600 8N1**，固件只用 TX |
+| 物理层 | USART1，PA9 TX / PA10 RX（连接器 U18），**921600 8N1**；TX = 文本日志 + WAV1 波形帧，**RX = HCMD 命令帧**（§8） |
 | 波特率误差 | 80 MHz PCLK / 921600 → BRR=87 → 实际 **919540 Bd（−0.22%）**，USB-UART 适配器均可容忍 |
 | 发送时机 | **每次冻结窗确认完成后，一确认一帧**：接受、相关度拒绝、校准合法性拒绝三种结果都发 |
 | 不发帧的情况 | 冻结异常中止（`Hit_ConfirmAbort`）→ 上位机由 `trig_id` 跳号发现 |
@@ -145,7 +145,81 @@ s_hit_trig_cnt = s_hit_count(接受) + s_conf_reject_cnt(相关度拒) + s_conf_
 | `s_wave_tx_start_ms` | app_log.c | 本次 DMA 启动时刻（`HAL_GetTick()`，看门狗计时） |
 | `s_wave_tx_stuck` | app_log.c | 看门狗强制中止次数（应为 0；非 0 = USART1 完成中断失效，见 §6 末两行） |
 
-## 8. Python 参考解析脚本
+## 8. 下行命令帧（HCMD）
+
+上位机 → 板子（USART1 RX，PA10）。板子用 **RX DMA（DMA1_Ch5，NORMAL 模式，1024B
+缓冲，`.ioc` 已配）零接收中断**接收：字节由 DMA 后台直搬缓冲，主循环（`HostCmd_Loop`）
+读 DMA 计数器推出新字节喂解析器（每圈 ≤2 命令），线路静默（IDLE 标志轮询）时清理
+残帧并重启 DMA 归零计数器。ACK 走文本日志（与 WAV1 同 TX，DMA 在飞时自动排队）。
+（v1.0 初版为单字节中断接收，击打期间与 WAV1 TX DMA/事件流争抢中断导致溢出，已弃。）
+
+### 8.1 帧格式
+
+全字段小端；CRC 参数与 WAV1 相同（§4：反射 0xEDB88320，zlib 兼容），覆盖 `[0, 8+len)`。
+
+| 偏移 | 长度 | 字段 | 说明 |
+|---:|---:|---|---|
+| 0 | 4 | `magic` | ASCII `HCMD`（小端 u32 = 0x444D4348） |
+| 4 | 1 | `version` | 1 |
+| 5 | 1 | `cmd` | 命令号（§8.2） |
+| 6 | 2 | `payload_len` | u16 小端，0–514 |
+| 8 | len | `payload` | 命令相关（§8.3） |
+| 8+len | 4 | `crc32` | 覆盖 `[0, 8+len)` |
+
+解析规则：丢字节找 `HCMD` 重同步；version≠1 或 payload_len>514 → 计 `s_frame_err`、
+丢 1 字节重同步；CRC 错 → 计 `s_crc_err`；两者都**不回 ACK**。
+
+### 8.2 命令表
+
+| cmd | 名称 | 载荷 | 语义 |
+|---:|---|---|---|
+| 0x01 | `SET_PARAMS` | 12 B（§8.3） | 精选 6 参数写入 **RAM**（即时生效，掉电丢失） |
+| 0x02 | `SAVE_PARAMS` | 空 | `Cal_Save` 写 Flash 页 62/61 双槽；锁帧确认中/自检运行中回 `err save busy` |
+| 0x03 | `SET_REFERENCE` | u16 n + n×i32 | 用宿主推送的合力窗替换 Flash 页 63 参照并置位本上电已训练（立即参与判拒） |
+| 0x04 | `GET_PARAMS` | 空 | 回 `[CMD] params …` 当前值 |
+| 0x05 | `SET_DEFAULTS` | 空 | 仅 6 精选字段恢复 `Cal_GetDefaults` 默认值（RAM） |
+
+**一次一令**：Flash 擦写停取指 ~25–31 ms，宿主不得在收到 ACK 前再发下一条
+（上位机侧 2 s 超时；正常 ACK <100 ms）。`SET_PARAMS` 载荷按
+`<BBiHHH` 打包：P01 u8、P03 u8、P04 i32、P05 u16、P26 u16、P27 u16（全小端）。
+
+精选参数范围（上位机 `commands.py PARAM_SPECS` 与固件 `host_cmd.c` 双端同一张表）：
+
+| P | 字段 | 最小 | 最大 | 默认 | 备注 |
+|---|---|---|---|---|---|
+| P01 | s_bl | 8 | 16 | 13 | 改后热身重算（5×2^s_bl） |
+| P03 | min_dur | 1 | 64 | 4 | 样本 |
+| P04 | thr_hit | 1000 | 2000000 | 25000 | 触发阈值 counts |
+| P05 | refractory_ms | 50 | 1000 | 200 | ms |
+| P26 | settle_depth | 1 | 512 | 64 | 样本 |
+| P27 | corr_min_q10 | 0 | 1024 | 609 | 0=只统计不判拒 |
+
+P21/P22 **不开放**：改窗长即毁 Flash 参照与上位机标定签名（相关度恒 0）。
+
+### 8.3 ACK 文本行（`[CMD]` 前缀）
+
+```
+[CMD] ok set-params P01=13 P03=4 P04=25000 P05=200 P26=64 P27=609
+[CMD] err set-params P04=2500000 range=1000..2000000
+[CMD] params P01=13 P03=4 P04=25000 P05=200 P26=64 P27=609      ← GET_PARAMS 回执（无 ok 前缀）
+[CMD] ok save seq=1 err=0        /  [CMD] err save busy        /  [CMD] err save err=N
+[CMD] ok ref n=128 flash=0       /  [CMD] err ref len=N win=M  /  err ref flat / err ref busy
+[CMD] ok defaults P01=13 …
+[CMD] err cmd=0x7F unknown
+```
+
+`[CMD] USART1 RX DMA armed` 为启动行（`HostCmd_Init`）。`save` 的 `err=N` 见
+`Cal_GetErr`（0 无，1 擦除，2 编程，3 解锁，4 回读校验）；`ref` 的 `flash=N`
+见 `RefStore_GetErr`。Ozone 观察：`s_rx_err`/`s_crc_err`/`s_frame_err`
+正常为 0，`s_cmd_ok` 随命令递增。
+
+**接收容错（v1.1 附注，方案 B/B2）**：RX 走 DMA 后错误标志不参与字节流——
+FE/NE 的字节照常被 DMA 搬入缓冲（`s_fe_ne` 只计数、仅诊断）；ORE（真丢字节，
+DMA 路径下正常不会发生）使该帧 CRC 必挂、被静默丢弃。链路脏的判读：`s_fe_ne`
+增长但命令照常通过 = 已容错；`s_rx_err` 持续增长 = 链路差到连续丢字节，需
+改善物理连接或宿主重试。
+
+## 9. Python 参考解析脚本
 
 依赖：`numpy`。用法：串口工具以原始二进制记录（PuTTY *All session output* 或 pyserial 读块落盘），
 然后：
@@ -233,8 +307,9 @@ if __name__ == "__main__":
     main()
 ```
 
-## 9. 变更记录
+## 10. 变更记录
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.1 | 2026-10-29 | 新增 HCMD 下行命令通道（§8）：精选参数调参/存档、Flash 参照替换；USART1 双向 |
 | v1.0 | 2026-10-28 | 初版：确认后逐帧上传 4 通道 hp 波形；USART1 115200→921600，TX DMA2_Channel6 |

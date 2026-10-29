@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import queue
 import time
 from pathlib import Path
 
@@ -36,15 +37,24 @@ class SourceWorker(QThread):
     def stop(self) -> None:
         self._stop = True
 
+    def send(self, data: bytes) -> bool:
+        """下行发送（基类不支持，回放器天然拒发）；返回是否受理。"""
+        return False
+
 
 class SerialWorker(SourceWorker):
-    """pyserial 阻塞读循环；timeout=0.1 保证 stop() 后 ≤100ms 退出。"""
+    """pyserial 阻塞读循环；timeout=0.1 保证 stop() 后 ≤100ms 退出。
+
+    下行（HCMD 命令）：send() 入队 + cancel_read 唤醒阻塞读，由工作线程
+    在循环头部排空队列写串口——写只发生在工作线程，免跨线程锁。
+    """
 
     def __init__(self, port: str, baudrate: int, parent=None) -> None:
         super().__init__(parent)
         self.port = port
         self.baudrate = int(baudrate)
         self._ser: serial.Serial | None = None
+        self._tx: queue.SimpleQueue[bytes] = queue.SimpleQueue()
 
     def stop(self) -> None:
         super().stop()
@@ -55,9 +65,20 @@ class SerialWorker(SourceWorker):
             except Exception:
                 pass
 
+    def send(self, data: bytes) -> bool:
+        if self._ser is None:
+            return False
+        self._tx.put(bytes(data))      # 拷贝，防调用方缓冲区复用
+        try:
+            self._ser.cancel_read()    # 唤醒阻塞读，尽快写出
+        except Exception:
+            pass
+        return True
+
     def run(self) -> None:
         try:
-            self._ser = serial.Serial(self.port, self.baudrate, timeout=0.1)
+            self._ser = serial.Serial(self.port, self.baudrate,
+                                      timeout=0.1, write_timeout=0.5)
         except Exception as exc:                       # 端口占用/不存在/权限
             self._ser = None
             self.error.emit(f"打开串口失败：{self.port} — {exc}")
@@ -67,6 +88,17 @@ class SerialWorker(SourceWorker):
         self.opened.emit(f"{self.port} @ {self.baudrate}")
         try:
             while not self._stop:
+                while True:                            # 排空发送队列
+                    try:
+                        out = self._tx.get_nowait()
+                    except queue.Empty:
+                        break
+                    try:
+                        self._ser.write(out)
+                    except Exception as exc:
+                        if not self._stop:
+                            self.error.emit(f"串口写入失败：{exc}")
+                        return
                 try:
                     n = self._ser.in_waiting
                     data = self._ser.read(n if n > 0 else 1)
