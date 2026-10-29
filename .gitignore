@@ -2,3 +2,14 @@
 /.cache
 /ref/
 compile_commands.json
+
+__pycache__/
+*.pyc
+Hit_ANZ/config.json
+# 标定集（每台机器/每块板独立，按需分发）
+Hit_ANZ/calib/
+# 冒烟测试截屏（--shot 生成）
+Hit_ANZ/test/tab2.png
+
+# 离线安装用的轮子（131MB，不入库；用 pip download 重新生成）
+/wheels/

@@ -31,7 +31,7 @@
 #define ST_DRDY_HIGH      4687u     /* 3906×1.2 */
 #define ST_STATS_N        256u      /* 噪声统计帧数 */
 #define ST_STATS_WATCHDOG 300u      /* 统计期无帧 watchdog */
-#define ST_MEAN_LIMIT     2097152   /* 25% 满量程（2^23/4，同 OFFSET 判据） */
+#define ST_MEAN_LIMIT     6291456   /* 25% 满量程（2^23/4，同 OFFSET 判据） */
 #define ST_RMS_LOW        1u        /* 方差下限（抓死通道） */
 #define ST_RMS_HIGH       50u       /* 噪声上限（7.6：1<方差<50 counts） */
 

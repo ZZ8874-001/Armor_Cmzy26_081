@@ -1,0 +1,4 @@
+# Windows batch files must keep CRLF line endings: cmd.exe mis-parses LF-only
+# .bat files (fragments like "'rlevel' is not recognized" / Chinese lines run
+# as commands). This forces CRLF on checkout regardless of core.autocrlf.
+*.bat text eol=crlf

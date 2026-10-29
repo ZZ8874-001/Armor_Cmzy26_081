@@ -44,6 +44,24 @@ typedef struct
     int32_t y_01;
 } pos_info_t;
 
+/* 冻结窗波形导出（USART1 上位机逐通道分析，Docs/USART1波形数据帧格式.md）：
+ * 每次确认完成（接受/相关度拒/校准拒）时一次性快照的元数据；窗数据本身由
+ * HitDetect_GetWaveTx 直接从冻结缓冲拷出。中止（Hit_ConfirmAbort）不产生快照，
+ * 上位机由 trig_id 跳号发现。 */
+typedef struct
+{
+    uint8_t  type;            /* 1=接受 2=相关度拒绝 3=校准合法性拒绝（接受但未训练） */
+    uint8_t  flags;           /* bit0=确认时参考有效 bit1=确认前本上电已训练
+                               * bit2=本次确认完成训练 bit3=基线热身已满 */
+    uint16_t win_len;         /* 窗长（= P21 预触发 + P22 触发后） */
+    uint32_t ts_ms;           /* 触发时刻 HAL_GetTick */
+    uint32_t trig_id;         /* 总触发号：含被拒/中止；跳号=中止或发送丢弃 */
+    uint16_t corr_q10;        /* 相关度 |ρ|×1024（判据本体） */
+    uint32_t pk_idx;          /* |hp_sum| 峰值索引（校准合法性判据） */
+    uint32_t peak_dif;        /* |dif_sum| 峰值（= 事件 peak / [HIT] 日志 sum_peak） */
+    uint32_t peak_ch[4];      /* 各通道 |hp| 峰值（= 事件 peak_ch） */
+} hit_wave_tx_t;
+
 /* 初始化：载入参数表（含 Flash 标定值回读）。 */
 void HitDetect_Init(const hit_param_t *p);
 
@@ -97,6 +115,14 @@ bool HitDetect_GetCorrReject(uint16_t *corr_q10);
 /* 取最新一次"校准合法性拒绝"的峰值 idx（一次性取出，深度 1）；无新拒绝返回 false。
  * 触发条件：训练击打的 |hp_sum| 峰值落在窗首/尾 5 样本内（见 hit_detect.c）。 */
 bool HitDetect_GetCalReject(uint16_t *pk_idx);
+
+/* 取最新一次确认的冻结窗 4 通道 hp 波形 + 元数据（一次性取出，深度 1）；
+ * 无新快照返回 false。hp 按 128×4 的 int32 数组分配（窗长上限 128，同
+ * HitDetect_GetWaveform），布局 [sample][ch] 与冻结缓冲一致（直 memcpy）；
+ * *n 返回样本数。
+ * 不动 GetWaveform 的一次性语义（s_wave_ready 不受影响）。
+ * 三种确认结果都有帧；中止无帧 → 看 trig_id 是否跳号。 */
+bool HitDetect_GetWaveTx(hit_wave_tx_t *info, int32_t *hp, uint16_t *n);
 
 /* 取最新一次"训练完成"通知（一次性取出，深度 1）：样本数 + 落盘结果
  * （flash_err：0=成功，其余见 RefStore_GetErr）。 */

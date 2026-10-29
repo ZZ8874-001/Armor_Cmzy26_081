@@ -46,7 +46,7 @@ App/
 
 - 依赖方向（原则上向下）：`app/` → `detect/`+`comm/`+`bsp/`；`detect/`、`comm/` → `bsp/`；`bsp/` → HAL + `board.h`。
 - **`detect/` 不得依赖 `comm/`**（检测算法不感知通信）；状态/灯联动经 `app/` 层编排。这是唯一无例外的规则。
-- 三处**有意为之**的例外，改动前先看清楚：① `app/faults.h` 与 `detect/calibration.h` 是跨层共享的**接口头**，`detect/`、`bsp/temp_mon`、`comm/` 都直接 include；② `comm/board_comm.c` include `app/` 侧头（它承担状态机/灯效/上报的编排）；③ `bsp/ads131m04.c` include `comm/app_log.h`。
+- 三处**有意为之**的例外，改动前先看清楚：① `app/faults.h` 与 `detect/calibration.h` 是跨层共享的**接口头**，`detect/`、`bsp/temp_mon`、`comm/` 都直接 include；② `comm/board_comm.c` include `app/` 侧头（它承担状态机/灯效/上报的编排）；③ `bsp/` 侧 include `comm/app_log.h`（`ads131m04.c` 打诊断日志、`ws2812_uart.c` 分发 USART1 TX 完成）。
 - 允许的 include：`"main.h"`、`"board.h"`、`<stdint.h>` 等标准头、本层头 + 下层头（如 `"bsp/ads131m04.h"`、`"detect/calibration.h"`）。**不要** include 其他模块的 `.c` 或 CubeMX 生成文件内部头。
 
 ## 4. 命名与代码规范
@@ -70,7 +70,7 @@ App/
 | `HAL_TIM_PeriodElapsedCallback` | app/main_app.c | TIM2_IRQHandler（1kHz） | 仅 `htim->Instance==TIM2` 时调 `App_OnTick1ms()` |
 | `HAL_GPIO_EXTI_Callback` | bsp/ads131m04.c | EXTI15_10_IRQHandler（PA15 DRDY，it.c 生成） | 仅 `ADC_NDRDY_Pin` 时调 `ADS131M04_IrqDrdy()` |
 | `HAL_SPI_TxRxCpltCallback` | bsp/ads131m04.c | SPI1/DMA1_Ch2/3 IRQ | 仅 SPI1 时调 `ADS131M04_IrqDmaDone()` |
-| `HAL_UART_TxCpltCallback` | bsp/ws2812_uart.c | USART2/DMA1_Ch7 IRQ | 仅 USART2 时调 `Ws2812_IrqTxDone()` |
+| `HAL_UART_TxCpltCallback` | bsp/ws2812_uart.c | USART2/DMA1_Ch7 IRQ →`Ws2812_IrqTxDone()`；USART1/DMA2_Ch6 IRQ →`App_Log_IrqTxDone()` | 全库唯一 owner，按 `huart->Instance` 分发。**两个 USART 的 NVIC 都必须使能**：NORMAL 模式 DMA 完成中断只打开 UART 的 TC 中断，回调实际由 USART 全局中断（`UART_EndTransmit_IT`）触发 |
 | `HAL_CAN_RxFifo0MsgPendingCallback` | comm/app_can.c | CAN1_RX0_IRQHandler | 排空 FIFO0 并分发 |
 | `HAL_CAN_ErrorCallback` | comm/app_can.c | CAN1_SCE_IRQHandler | 记录 LEC / 置 Bus-Off 恢复标志 |
 | `HAL_PWR_PVD_Callback` | app/faults.c | PVD 中断（SYS_V_PVD_IN） | 置 sticky `FAULT_POWER`，仅自检通过或复位可清 |
@@ -126,6 +126,7 @@ App/
 - 检测调试变量（hit_detect.c）：`s_hit_dif`（实时差分信号）、`s_hit_sum`/`s_hit_bl[4]`（合力/基线）、`s_hit_state`（0=IDLE/1=ARMED/**2=CONFIRMING**/3=REFRACTORY/4=SETTLING）、`s_hit_event`/`s_hit_count`（**语义=接受事件数**）、`s_wave_ready`/`s_wave_frozen_*`（锁帧波形）、`s_hit_faults`。
 - 确认段调试变量（hit_detect.c，两段式判定的第二段）：`s_hit_trig_cnt`（总触发数，含被拒）、`s_conf_reject_cnt`（相关度不足拒绝数）、`s_conf_abort_cnt`（冻结异常中止数）、**`s_conf_corr`（本次确认的 \|Pearson ρ\|×1024，判据本体）**、**`s_conf_pk_idx`（本次确认的 \|hp_sum\| 峰值索引，校准合法性判据）**、`s_confirm_done`。三路计数满足对账 `s_hit_trig_cnt = s_hit_count（接受） + s_conf_reject_cnt（拒判） + s_conf_abort_cnt（冻结异常）`。整定 P27 时观察 `s_conf_corr` + USART1 的 `[HIT] … corr=` / `[CONF] rej corr=` / `[CONF] cal-rej pk=` 日志。**`s_corr_ring[64]` + `s_corr_ring_wr`**：最近 64 次确认（接受/拒绝都算，中止不算）的相关度环形记录；**`s_peak_ring[64]` + `s_peak_ring_wr` + `s_conf_peak`**：同窗口的峰值环形记录（= 事件 `peak` 字段 = `\|dif_sum\|` 峰值，即 `[HIT]` 日志的 `sum_peak=` 口径）。Ozone 展开数组看分布（ring[wr]=最旧，ring[wr-1]=最新；数组不可 CSV 导出）。
 - 热身调试变量（hit_detect.c）：`s_boot_samples`（自 Init 起消费的样本数，含自检喂帧/REFRACTORY 期间）、`s_warmup_samples`（=5×2^s_bl，s_bl=13 → 40960 ≈10.485s）。**热身未满 → 判据不判拒、训练禁用**，故 `s_boot_samples < s_warmup_samples` 时不该出现 `[CONF] trained`、`[CONF] rej` 或 `[CONF] cal-rej`。
+- 波形上传调试变量：detect 侧 `s_wave_tx_pending`（1=有未取走的确认快照，深度 1）、`s_wave_tx_info`（最近一次确认的元数据：type/flags/trig_id/corr/pk_idx/peak_*）；comm 侧 `s_wave_tx_busy`（1=DMA 在飞）、`s_wave_tx_cnt`（累计启动发送数）、`s_wave_drop`（DMA 启动失败丢弃数，应为 0）、`s_wave_tx_stuck`（看门狗强制中止次数，应为 0）。条件应同时成立：`s_wave_drop`/`s_wave_tx_stuck` 不增长、`s_wave_tx_cnt` = 上位机收到帧数、`s_wave_tx_busy` 击打后回落 0。`s_wave_tx_stuck` 增长即 USART1 完成中断失效（`App_Log_Poll` 100ms 看门狗兜底，见 app_log.c 注释）。帧格式见 `Docs/USART1波形数据帧格式.md`。
 - 参考样本调试变量（hit_detect.c）：`s_ref_valid`（1=有可用参考）、`s_ref_trained_boot`（1=本次上电已训练）、`s_ref_n`（样本数，应 = 128 = P21+P22；不等则 corr 恒 0）、`s_ref_norm`（Σc²，归一化因子）、`s_ref_train_n`/`s_ref_train_err`（固化样本数 / 落盘结果）。Flash 侧失败码见 `ref_store.c` 的 `RefStore_GetErr()`（0=无错/1=擦除/2=编程/3=解锁）。
 - 自检变量（ads131m04.c）：`s_st_dc[4]`（直流偏置，随姿态变化正常）、`s_st_rms[4]`（**去均值后**的真实噪声，期望 <100 counts）。
 
@@ -134,9 +135,10 @@ App/
 - **K=32 帧环形缓冲**（`ADS_RING_DEPTH`，32×18B=576B）：DRDY EXTI 取空闲槽写、槽满跳帧 + `drop_cnt` 计数；主循环按读指针消费（写指针仅 ISR、读指针仅主循环，R17）。
 - WS2812 帧缓冲：`WS2812_FRAME_BYTES`=156B（13×12，编码为每 UART 字节 2 个 WS 位、每颜色字节 4 字节），DMA 发送 ≈416µs，20Hz 刷新。（118B 是已废弃的 2.667MBd 分数格方案的遗留值。）
 - CAN 接收队列和击打事件队列均为 4 项固定帧缓冲；CAN 暂时发送失败时击打事件按 100ms 节拍重试，直到电管回 `offset=0xA` ACK。
-- 事件流（**两段式**）：ADS 帧 → `HitDetect_Feed` → 触发（|hit_dif|≥P04 且连续≥P03）→ 锁帧 + CONFIRMING → 等满 P22 触发后样本 → 与**参考样本**做归一化互相关（P27）→ **接受**（**热身 5τ 内、参考不可用或本上电尚未训练时判据一律让路**——训练前不判拒，旧参考不会堵死重训；见 `hit_detect.h` 参考语义段）：`hit_event_t`（冻结窗峰值 + `peak_ch[4]` + impulse/duration）→ 若为**热身后**本次上电第一次接受**且峰值 idx 距窗首/尾 ≥5 样本**（校准合法性）则固化参考 + 写 Flash 末页，贴边则 `[CONF] cal-rej` 留待下一击 → `StateMachine_OnHitEvent` → `BoardComm_ReportHitEvent`；**拒绝**：只留相关度 → `HitDetect_GetCorrReject`（main_app 打 `[CONF] rej corr=`，不上 CAN、不进状态机）。两条路都进 50ms 不应期 + P26 沉降门控。
+- 事件流（**两段式**）：ADS 帧 → `HitDetect_Feed` → 触发（|hit_dif|≥P04 且连续≥P03）→ 锁帧 + CONFIRMING → 等满 P22 触发后样本 → 与**参考样本**做归一化互相关（P27）→ **接受**（**热身 5τ 内、参考不可用或本上电尚未训练时判据一律让路**——训练前不判拒，旧参考不会堵死重训；见 `hit_detect.h` 参考语义段）：`hit_event_t`（冻结窗峰值 + `peak_ch[4]` + impulse/duration）→ 若为**热身后**本次上电第一次接受**且峰值 idx 距窗首/尾 ≥5 样本**（校准合法性）则固化参考 + 写 Flash 末页，贴边则 `[CONF] cal-rej` 留待下一击 → `StateMachine_OnHitEvent` → `BoardComm_ReportHitEvent`；**拒绝**：只留相关度 → `HitDetect_GetCorrReject`（main_app 打 `[CONF] rej corr=`，不上 CAN、不进状态机）。两条路都进 P05 不应期（当前 200ms）+ P26 沉降门控。
+- 波形上传数据流（`Docs/USART1波形数据帧格式.md`）：确认完成（接受/相关度拒/校准拒）→ `Hit_ConfirmRun` 快照元数据 + `s_wave_tx_pending=1` → 主循环 `HitDetect_GetWaveTx` 取走（4 通道 hp × n，直 memcpy 冻结缓冲）→ main_app 组帧（48B 头 + n×16B + CRC32）→ `App_Log_SendDma`（USART1 TX DMA2_Ch6，n=128 时 2100B ≈22.8ms）→ 完成中断释放 busy。**深度 1，TX 在飞时快照留到下一主循环趟重试**（`App_Log_TxBusy` 门控，DMA 在飞绝不覆写帧缓冲）；中止不发帧，上位机由 `trig_id` 跳号发现。不受 P18 事件使能门控。
 - 层间约束：`detect/` 不依赖 `comm/`，故拒绝/事件都只入队，日志与上报由 `app/` 层取走。
-- **Flash 写只在主循环**：`RefStore_Load` 上电**纯读、不擦页**（页保留旧参考直到训练写入覆盖）；`RefStore_Save`（擦+写 ~31ms）仅主循环可调，由训练链路调用（落在 50ms 不应期内），ISR 内禁止碰 Flash。
+- **Flash 写只在主循环**：`RefStore_Load` 上电**纯读、不擦页**（页保留旧参考直到训练写入覆盖）；`RefStore_Save`（擦+写 ~31ms）仅主循环可调，由训练链路调用（落在 P05 不应期内，当前 200ms），ISR 内禁止碰 Flash。
 
 ## 12. 扩展配方（step-by-step 文件清单）
 

@@ -57,7 +57,7 @@
 /* 参考样本直接载入 s_ref_sum，故 Flash 侧容量必须 ≥ 冻结窗上限 */
 _Static_assert(REF_STORE_MAX >= HIT_WAVE_MAX, "ref_store 容量小于冻结窗上限");
 
-#define HIT_FS_25PCT      2097152              /* 25% 满量程（2^23/4）：偏置异常判据 */
+#define HIT_FS_75PCT      6291456              /* 25% 满量程（2^23/4）：偏置异常判据 */
 #define HIT_REF_PERIOD_MS 100u                 /* 健康评估节拍（50ms 分频 ×2 累计到 100ms） */
 #define HIT_FAULT_RETRY_MS 5000u               /* 故障自动重试周期 */
 #define HIT_CORR_RING_MAX 64u                  /* 相关度环形记录深度（P27 整定分布观察） */
@@ -144,6 +144,12 @@ static volatile uint8_t  s_wave_ready;
 static uint16_t s_wave_idx;
 static uint16_t s_freeze_cntdown;
 static uint8_t  s_freeze_active;
+
+/* 冻结窗波形导出（USART1 上位机逐通道分析）：每次确认完成（接受/相关度拒/校准拒）
+ * 快照元数据，窗数据由 HitDetect_GetWaveTx 直接从 s_wave_frozen_hp 拷出。
+ * 深度 1：下一确认覆盖（消费在下一主循环趟；DMA 22.8ms ≪ 200ms 不应期）。 */
+static volatile uint8_t  s_wave_tx_pending;          /* 待取标志（深度 1） */
+static volatile hit_wave_tx_t s_wave_tx_info;        /* 元数据快照 */
 
 /* 持续判定与不应期 */
 static uint16_t s_dur_cnt;
@@ -540,6 +546,9 @@ static void Hit_ConfirmRun(void)
     uint32_t corr_q10;
     uint8_t  reject;
     uint8_t  warmup_elapsed;
+    uint8_t  ref_valid_now;
+    uint8_t  trained_before;
+    uint8_t  cal_pend_before;
 
     s_confirm_done = 0u;
     Hit_ConfirmEval(&ft);
@@ -547,6 +556,11 @@ static void Hit_ConfirmRun(void)
     s_conf_peak = ft.dif_pk;
     corr_q10 = Hit_CorrQ10(s_wave_total);
     warmup_elapsed = (s_boot_samples >= s_warmup_samples) ? 1u : 0u;
+
+    /* 波形帧元数据快照的"确认前"部分（须早于接受分支里的 Hit_RefTrain）。 */
+    ref_valid_now   = s_ref_valid;
+    trained_before  = s_ref_trained_boot;
+    cal_pend_before = s_cal_rej_pending;
 
     /* 判据（P27）：相关度低于下限 → 形状不像已知的真实击打。P27=0 恒接受
      * （只统计不判拒，重采分布整定时用）。三处门控：
@@ -566,7 +580,7 @@ static void Hit_ConfirmRun(void)
               s_p.corr_min_q10 > 0u &&
               corr_q10 < (uint32_t)s_p.corr_min_q10) ? 1u : 0u;
 
-    s_ref_trained_boot = 0;
+    //s_ref_trained_boot = 0;
     
     s_conf_corr = (uint16_t)corr_q10;    /* 判据本体（Ozone / 日志观察） */
 
@@ -623,6 +637,24 @@ static void Hit_ConfirmRun(void)
         s_corr_reject_pending = 1u;
     }
 
+    /* ---- 波形上传快照（三种结果各一帧；中止路径 Hit_ConfirmAbort 不产生帧） ----
+     * cal-rej 只能由接受分支的 Hit_RefTrain 置位（峰值贴窗边→本次不训练），
+     * 故用"取走前/后标志是否变化"识别，无需额外状态。 */
+    s_wave_tx_info.type  = (reject != 0u) ? 2u
+                         : ((s_cal_rej_pending != cal_pend_before) ? 3u : 1u);
+    s_wave_tx_info.flags = (uint8_t)(((ref_valid_now != 0u) ? 0x01u : 0u) |
+                                     ((trained_before != 0u) ? 0x02u : 0u) |
+                                     ((trained_before == 0u && s_ref_trained_boot != 0u) ? 0x04u : 0u) |
+                                     ((warmup_elapsed != 0u) ? 0x08u : 0u));
+    s_wave_tx_info.win_len  = s_wave_total;
+    s_wave_tx_info.ts_ms    = s_conf_ts_ms;
+    s_wave_tx_info.trig_id  = s_hit_trig_cnt;
+    s_wave_tx_info.corr_q10 = (uint16_t)corr_q10;
+    s_wave_tx_info.pk_idx   = s_conf_pk_idx;
+    s_wave_tx_info.peak_dif = s_conf_peak;
+    for (i = 0u; i < 4u; i++) { s_wave_tx_info.peak_ch[i] = ft.hp_pk[i]; }
+    s_wave_tx_pending = 1u;
+
     s_hit_state = HIT_ST_REFRACTORY;
     s_refractory_cnt = (uint16_t)((uint32_t)s_p.refractory_ms * 3906u / 1000u);
 }
@@ -664,6 +696,7 @@ void HitDetect_Init(const hit_param_t *p)
     s_confirm_done = 0u;
     s_corr_reject_pending = 0u;
     s_cal_rej_pending = 0u;
+    s_wave_tx_pending = 0u;
     s_conf_ts_ms = 0u;
     s_conf_corr = 0u;
     s_conf_pk_idx = 0u;
@@ -730,7 +763,7 @@ void HitDetect_Feed(const ads_frame_t *f)
         {
             int32_t a = (f->ch[i] < 0) ? -f->ch[i] : f->ch[i];
             if (a > s_p.sat_thr) { s_sat_cnt[i]++; } else { s_sat_cnt[i] = 0u; }
-            if (s_hit_bl[i] > HIT_FS_25PCT || s_hit_bl[i] < -HIT_FS_25PCT)
+            if (s_hit_bl[i] > HIT_FS_75PCT || s_hit_bl[i] < -HIT_FS_75PCT)
             { s_off_cnt[i]++; } else { s_off_cnt[i] = 0u; }
         }
     }
@@ -836,6 +869,21 @@ bool HitDetect_GetCalReject(uint16_t *pk_idx)
     if (s_cal_rej_pending == 0u || pk_idx == NULL) { return false; }
     *pk_idx = (uint16_t)s_conf_pk_idx;
     s_cal_rej_pending = 0u;
+    return true;
+}
+
+bool HitDetect_GetWaveTx(hit_wave_tx_t *info, int32_t *hp, uint16_t *n)
+{
+    if (s_wave_tx_pending == 0u || info == NULL || hp == NULL || n == NULL)
+    {
+        if (n != NULL) { *n = 0u; }
+        return false;
+    }
+    *info = s_wave_tx_info;
+    *n = (info->win_len <= HIT_WAVE_MAX) ? info->win_len : (uint16_t)HIT_WAVE_MAX;
+    /* [sample][ch] 布局与冻结缓冲一致 → 一次 memcpy（n×4×4B，n≤128 → ≤2KB） */
+    memcpy(hp, s_wave_frozen_hp, (size_t)(*n) * 4u * sizeof(int32_t));
+    s_wave_tx_pending = 0u;
     return true;
 }
 

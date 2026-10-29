@@ -14,6 +14,7 @@
  ******************************************************************************
  */
 #include "bsp/ws2812_uart.h"
+#include "comm/app_log.h"   /* USART1 TX DMA 完成分发（本文件是 TxCpltCallback 唯一 owner） */
 
 #include <string.h>
 
@@ -80,11 +81,19 @@ void Ws2812_IrqTxDone(void)
     /* TXINV：发送完成后线路回到空闲低电平 = WS 复位码，帧间隔 50ms ≫ 50µs 自然锁存 */
 }
 
-/* weak 回调桥接（it.c 已备好 USART2_IRQHandler；DMA1_Ch7 IRQ → HAL_UART_IRQHandler） */
+/* weak 回调桥接——全库唯一 owner，按实例分发：
+ *   USART2：WS2812（DMA1_Ch7 完成 → USART2 TC 中断 → HAL 回调）
+ *   USART1：日志二进制块发送（DMA2_Ch6 完成 → USART1 TC 中断 → HAL 回调）
+ * 注意 NORMAL 模式下 DMA 完成中断只打开 UART 的 TC 中断，回调实际由 USART
+ * 全局中断里的 UART_EndTransmit_IT 触发——两个 USART 的 NVIC 都必须使能。 */
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART2)
     {
         Ws2812_IrqTxDone();
+    }
+    else if (huart->Instance == USART1)
+    {
+        App_Log_IrqTxDone();
     }
 }
