@@ -42,6 +42,7 @@ static volatile uint8_t    s_comm_lost;  /* 通信层置位；在 BOOT 结束后
 static volatile uint32_t   s_train_ms;   /* 自 BOOT 起算的上电耗时（热身+20s 探测窗基准） */
 static uint32_t            s_warmup_ms;  /* 热身 5τ 的毫秒数（Init 时向检测层取，此后恒定） */
 static volatile uint8_t    s_ref_phase;  /* 紫闪相位：0=热身着(1Hz) 1=击打探测窗(5Hz) 0xFF=未定 */
+static volatile uint16_t   s_comm_hit_ms;/* COMM_LOST 受击紫闪计时：0=空闲，1..SM_HIT_MS=闪灯中 */
 
 /* 进入 FAULT（故障灯效由 led_status 按 Fault_GetBitmap 分类生成） */
 static void Sm_ToFault(void)
@@ -112,6 +113,7 @@ void StateMachine_Init(void)
     s_comm_lost = 0u;
     s_train_ms = 0u;
     s_ref_phase = 0xFFu;                  /* 相位未定，首次 Sm_ToRefPending 时定 */
+    s_comm_hit_ms = 0u;
     s_warmup_ms = HitDetect_GetWarmupMs(); /* HitDetect_Init 已先跑（main_app 调用序），无竞态 */
     LedStatus_SetEffect(LED_EFF_BOOT);
 }
@@ -138,10 +140,21 @@ void StateMachine_Tick(void)
     /* 上电校准门——优先级：故障之后、离线之前（用户指定）。
      * BOOT 白灯 300ms 不打断（"初始化之后"才紫闪）。
      * 门内紫闪分两段：热身 5τ 紫 1Hz 慢闪 → 20s 探测窗紫 5Hz 快闪（相位由 Sm_RefPhaseTick 切）。 */
-    if (s_state != SM_STATE_BOOT && Sm_RefPendingNeeded())
+    if (s_state != SM_STATE_BOOT)
     {
-        Sm_ToRefPending();
-        return;
+        if (Sm_RefPendingNeeded())
+        {
+            Sm_ToRefPending();
+            return;
+        }
+        /* 校准阶段已结束（训练完成 / 超时沿用 Flash 参考 / 上位机上线跳过）：
+         * 参考判拒武装——与 CAN 在线与否无关（2026-10-30 决策）。
+         * 挂在此处而非 Sm_LeaveRefPending 内：Sm_RefPendingNeeded 是校准的唯一权威
+         * 判据，放行即结束；故障恢复/离线恢复等旁路不经 Sm_LeaveRefPending 也能覆盖。
+         * 幂等，每 tick 一次置位无副作用。
+         * **必须与校准门同受 BOOT 守卫**：BOOT 期间武装会让判拒在紫闪校准窗内
+         * 生效，Flash 旧参考会拒掉校准击打 → 训练永不可达（2026-10-30 修）。 */
+        HitDetect_ArmReference();
     }
 
     if (s_comm_lost != 0u)
@@ -151,6 +164,15 @@ void StateMachine_Tick(void)
             s_state = SM_STATE_COMM_LOST;
             s_state_ms = 0u;
             LedStatus_SetEffect(LED_EFF_COMM_LOST);
+        }
+        /* 离线受击快闪：到点恢复紫常亮（状态保持 COMM_LOST，不上报、PB1 不亮） */
+        if (s_comm_hit_ms != 0u)
+        {
+            if (++s_comm_hit_ms >= SM_HIT_MS)
+            {
+                s_comm_hit_ms = 0u;
+                LedStatus_SetEffect(LED_EFF_COMM_LOST);
+            }
         }
         return;
     }
@@ -233,7 +255,9 @@ void StateMachine_OnCommLost(bool lost)
     if (lost)
     {
         s_comm_lost = 1u;
-        if (s_state != SM_STATE_FAULT)
+        /* BoardComm_Loop 每圈都会带 lost=true 调本函数：守卫必须含
+         * COMM_LOST 本身，否则每圈重设紫常亮灯效、把受击闪灯盖掉。 */
+        if (s_state != SM_STATE_FAULT && s_state != SM_STATE_COMM_LOST)
         {
             s_state = SM_STATE_COMM_LOST;
             s_state_ms = 0u;
@@ -243,6 +267,7 @@ void StateMachine_OnCommLost(bool lost)
     else
     {
         s_comm_lost = 0u;
+        s_comm_hit_ms = 0u;    /* 闪灯中恢复链接：终止计时，回 NORMAL 灯效 */
         if (s_state == SM_STATE_COMM_LOST)
         {
             s_state = SM_STATE_NORMAL;
@@ -279,7 +304,15 @@ void StateMachine_OnHitEvent(const hit_event_t *e)
         s_state_ms = 0u;
         LedStatus_SetEffect(LED_EFF_HIT);
     }
-    /* FAULT/COMM_LOST 态不发送只计数（11 章语义）——事件仍由 main_app 日志输出 */
+    else if (s_state == SM_STATE_COMM_LOST)
+    {
+        /* 离线也有击打灯效（2026-10-30）：复用紫闪 5Hz 图案（REF_PENDING），
+         * 颜色与常亮紫一致；状态不动——不上报 CAN、PB1 保持灭，
+         * Tick 离线门 300ms 后恢复紫常亮。闪灯期间再受击 → 重新置 1（刷新）。 */
+        s_comm_hit_ms = 1u;
+        LedStatus_SetEffect(LED_EFF_REF_PENDING);
+    }
+    /* FAULT 态不发送只计数（11 章语义）——事件仍由 main_app 日志输出 */
 }
 
 sm_state_t StateMachine_Get(void)

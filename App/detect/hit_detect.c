@@ -108,7 +108,8 @@ static int32_t  s_ref_sum[HIT_WAVE_MAX];
 static int32_t  s_ref_c[HIT_WAVE_MAX];
 static volatile uint16_t s_ref_n;                    /* 参考样本数（判定时须与窗长相等） */
 static volatile uint8_t  s_ref_valid;                /* 有可用参考（Flash 载入 或 本次训练） */
-static volatile uint8_t  s_ref_trained_boot;         /* 本次上电已训练（状态机紫闪退出条件） */
+static volatile uint8_t  s_ref_trained_boot;         /* 本次上电已训练（训练一次性守卫/校准退出/帧 flags） */
+static volatile uint8_t  s_ref_armed;                /* 校准阶段已结束：Flash 参考可参与判拒（状态机置位） */
 static volatile uint64_t s_ref_norm;                 /* Σc²，训练/载入时预计算（归一化因子） */
 static volatile uint32_t s_ref_train_err;            /* 训练时落盘结果（RefStore_GetErr 快照） */
 static volatile uint8_t  s_ref_train_notice;         /* 训练完成通知待取标志（深度 1） */
@@ -569,13 +570,15 @@ static void Hit_ConfirmRun(void)
      *      （Hit_RefTrain 同款门控），参考样本保持纯净。
      *   ② 无可用参考（s_ref_valid=0）：corr=0 无意义 → 直接接受并训练，修复死锁
      *      （旧逻辑 corr<下限拒掉首击 → Hit_RefTrain 永不可达 → 新板永不训练）。
-     *   ③ 训练前不判拒（s_ref_trained_boot=0，2026-10-17 决策）：只有本上电训练
-     *      出来的参考才有资格拒判——旧参考可能来自不同的激励方式/安装，用它拒掉
-     *      首击会让训练永不可达（旧参考→拒判→不训练→旧参考 的死锁）。训练前一律
-     *      接受，第一记击打训练新参考，训练后相关度判据才生效。
+     *   ③ 校准阶段未结束不判拒（s_ref_armed=0，2026-10-30 修订）：开机校准
+     *      （REF_PENDING）期间一律接受——校准击打不因与 Flash 旧参考相关度差而
+     *      被放弃训练；校准结束（训练完成/超时沿用 Flash 参考/上位机上线跳过，
+     *      与 CAN 在线与否无关）后状态机置位武装，此后 Flash 参考参与判拒。
+     *      取代旧门「训练前不判拒」（2026-10-17）：旧门导致重启后若校准超时
+     *      退出且窗内无击打，整个 boot 判拒永久关闭（异常灵敏）。
      * 参考有效但窗长失配/冻结异常时 corr=0 → 仍落拒判分支，属预期。 */
     reject = (warmup_elapsed != 0u &&
-              s_ref_trained_boot != 0u &&
+              s_ref_armed != 0u &&
               s_ref_valid != 0u &&
               s_p.corr_min_q10 > 0u &&
               corr_q10 < (uint32_t)s_p.corr_min_q10) ? 1u : 0u;
@@ -718,6 +721,7 @@ void HitDetect_Init(const hit_param_t *p)
     s_ref_n = 0u;
     s_ref_valid = 0u;
     s_ref_trained_boot = 0u;
+    s_ref_armed = 0u;      /* 校准阶段结束由状态机置位（HitDetect_ArmReference） */
     s_ref_norm = 0u;
     s_ref_train_err = 0u;
     s_ref_train_notice = 0u;
@@ -909,6 +913,13 @@ bool HitDetect_RefValid(void)
 bool HitDetect_RefTrainedThisBoot(void)
 {
     return (s_ref_trained_boot != 0u) ? true : false;
+}
+
+/* 校准阶段结束通知（幂等）：此后 Flash 参考参与 P27 判拒（与 CAN 在线与否无关，
+ * 2026-10-30 决策）。由状态机在校准门放行处调用。 */
+void HitDetect_ArmReference(void)
+{
+    s_ref_armed = 1u;
 }
 
 /* 宿主推送参考（HCMD SET_REFERENCE，主循环专用）：先验窗长/锁帧状态/平窗，
