@@ -24,7 +24,7 @@ typedef struct
     uint16_t win_len;           /* P02 窗口长度（样本，默认 32=8.2ms） */
     uint8_t  min_dur;           /* P03 最小持续（样本，默认 4=1.02ms；上位机可调 1~64） */
     int32_t  thr_hit;           /* P04 击打阈值 counts（默认 25000；上位机可调 1000~2000000） */
-    uint16_t refractory_ms;     /* P05 不应期（默认 200ms；上位机可调 50~1000） */
+    uint16_t refractory_ms;     /* P05 不应期（默认 20ms；上位机 HCMD 可调 50~1000——默认低于下界，见 USART1 文档 §8.2 注） */
 
     /* --- 标定与诊断（P06~P10） --- */
     float    k_n;               /* P06 力度系数 counts/0.01N（19N/100N 两点标定） */

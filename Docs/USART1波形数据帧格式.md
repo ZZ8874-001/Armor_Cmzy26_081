@@ -14,11 +14,11 @@ HCMD 下行通道见 `App/comm/host_cmd.c`（§8）。本文件与代码不一�
 | 不发帧的情况 | 冻结异常中止（`Hit_ConfirmAbort`）→ 上位机由 `trig_id` 跳号发现 |
 | 搬运方式 | USART1 TX DMA（**DMA2_Channel6**，NORMAL 模式，BYTE/BYTE），软件只组帧 + 启动 |
 | 帧长 | `48 + 16n + 4` 字节；默认 n=128 → **2100 B ≈ 22.8 ms @921600** |
-| 并发策略 | 深度 1：TX 在飞时快照保留、下一主循环趟重试（**绝不覆写 DMA 在飞缓冲**）；仅 DMA 启动失败才丢弃（计数 `s_wave_drop`）。P05 不应期 ≥200 ms ≫ 22.8 ms，正常无重叠 |
+| 并发策略 | 深度 1：TX 在飞时快照保留、下一主循环趟重试（**绝不覆写 DMA 在飞缓冲**）；仅 DMA 启动失败才丢弃（计数 `s_wave_drop`）。默认配置下确认间隔下限 = P05 20 ms + P26 沉降 16.4 ms ≈ 36.4 ms > 22.8 ms，正常无重叠；若 P26 被调得极小使间隔 < 22.8 ms，深度 1 快照可能被下一次确认覆盖（表现：`trig_id` 跳号） |
 | 与文本日志共存 | 同一 TX 上文本行与二进制帧交错；解析器按魔数扫描 + 长度 + CRC 区分，无需流完整性 |
 
-帧周期约束：一次击打一次触发一次确认，确认距下一次最早触发 ≥ P05 不应期（当前 200 ms），
-DMA 一帧占 22.8 ms，带宽占用约 11%。
+帧周期约束：一次击打一次触发一次确认，确认距下一次最早触发 ≥ P05 不应期（当前 20 ms）
++ P26 沉降门控（默认 64 样本 ≈16.4 ms），DMA 一帧占 22.8 ms，带宽占用约 11%。
 
 ## 2. 帧格式
 
@@ -190,18 +190,23 @@ s_hit_trig_cnt = s_hit_count(接受) + s_conf_reject_cnt(相关度拒) + s_conf_
 | P01 | s_bl | 8 | 16 | 13 | 改后热身重算（5×2^s_bl） |
 | P03 | min_dur | 1 | 64 | 4 | 样本 |
 | P04 | thr_hit | 1000 | 2000000 | 25000 | 触发阈值 counts |
-| P05 | refractory_ms | 50 | 1000 | 200 | ms |
+| P05 | refractory_ms | 50 | 1000 | 20 | ms；**固件默认 20 低于通道下界 50**，见下注 |
 | P26 | settle_depth | 1 | 512 | 64 | 样本 |
 | P27 | corr_min_q10 | 0 | 1024 | 609 | 0=只统计不判拒 |
+
+> **P05 默认值与通道下界的交错（2026-10-30）**：`Cal_GetDefaults()` 默认 20 ms，而 HCMD
+> 校验范围是 50~1000。后果：上位机「读取当前值」收到 20 会被界面夹到 50（显示与真值不符）；
+> 此时点「写入」会把板子改成 50。若要在线上使用 20 ms，需同时放宽固件 `host_cmd.c` 的
+> `HC_REFR_MIN` 与上位机 `commands.py` 的 `PARAM_SPECS`。默认值本身可经 `SAVE_PARAMS` 存档。
 
 P21/P22 **不开放**：改窗长即毁 Flash 参照与上位机标定签名（相关度恒 0）。
 
 ### 8.3 ACK 文本行（`[CMD]` 前缀）
 
 ```
-[CMD] ok set-params P01=13 P03=4 P04=25000 P05=200 P26=64 P27=609
+[CMD] ok set-params P01=13 P03=4 P04=25000 P05=20 P26=64 P27=609
 [CMD] err set-params P04=2500000 range=1000..2000000
-[CMD] params P01=13 P03=4 P04=25000 P05=200 P26=64 P27=609      ← GET_PARAMS 回执（无 ok 前缀）
+[CMD] params P01=13 P03=4 P04=25000 P05=20 P26=64 P27=609      ← GET_PARAMS 回执（无 ok 前缀）
 [CMD] ok save seq=1 err=0        /  [CMD] err save busy        /  [CMD] err save err=N
 [CMD] ok ref n=128 flash=0       /  [CMD] err ref len=N win=M  /  err ref flat / err ref busy
 [CMD] ok defaults P01=13 …

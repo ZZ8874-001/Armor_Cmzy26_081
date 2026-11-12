@@ -57,7 +57,7 @@
 /* 参考样本直接载入 s_ref_sum，故 Flash 侧容量必须 ≥ 冻结窗上限 */
 _Static_assert(REF_STORE_MAX >= HIT_WAVE_MAX, "ref_store 容量小于冻结窗上限");
 
-#define HIT_FS_75PCT      6291456              /* 25% 满量程（2^23/4）：偏置异常判据 */
+#define HIT_FS_75PCT      6291456              /* 75% 满量程（2^23/4*3）：偏置异常判据 */
 #define HIT_REF_PERIOD_MS 100u                 /* 健康评估节拍（50ms 分频 ×2 累计到 100ms） */
 #define HIT_FAULT_RETRY_MS 5000u               /* 故障自动重试周期 */
 #define HIT_CORR_RING_MAX 64u                  /* 相关度环形记录深度（P27 整定分布观察） */
