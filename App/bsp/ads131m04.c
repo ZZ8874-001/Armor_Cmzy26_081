@@ -23,6 +23,7 @@
  */
 #include "bsp/ads131m04.h"
 #include "board.h"
+#include "board_variant.h"   /* ADS_GAIN1_VALUE：按变体选择 PGA ×1/×4 */
 #include "comm/app_log.h"
 
 #include <math.h>
@@ -56,7 +57,9 @@ typedef struct
 static const ads_reg_cfg_t s_reg_init[] =
 {
     { 0x03u, 0x0F0Eu },   /* CLOCK：4 通道使能 + OSR=1024 + PWR=HR（旧批默认即此值） */
-    { 0x04u, 0x2222u },   /* GAIN1：4 通道 1-2-4-8增益分别对应 0x0000-0x1111-0x2222-0x3333. 2kg用4倍，500g用1倍，082板子 + 500g也用一倍 */
+    { 0x04u, ADS_GAIN1_VALUE },   /* GAIN1：每通道 4bit，0x0000=×1 / 0x1111=×2 / 0x2222=×4 / 0x3333=×8。
+                                   * 变体决定（App/board_variant.h）：500g → ×1（0x0000）；2kg → ×4（0x2222）。
+                                   * 启动日志 [ADS] WREG 0x04=… 是烧写后判别变体的依据。 */
     { 0x06u, 0x0600u },   /* CFG：默认 */
     { 0x07u, 0x0000u },   /* THRSHLD_MSB */
     { 0x08u, 0x0000u },   /* THRSHLD_LSB（DCBLOCK=关） */

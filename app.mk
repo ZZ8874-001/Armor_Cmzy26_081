@@ -25,3 +25,18 @@ App/app/main_app.c
 C_SOURCES += $(APP_SOURCES)
 C_INCLUDES += -IApp -IApp/bsp -IApp/detect -IApp/comm \
               -IApp/app
+
+# ---- 发布变体（v1.0.0）：默认 083_2kg = 合并后的现行配置 ----
+# 用法：make -j BUILD_DIR=build/082_500g ARMOR_VARIANT=082_500g
+# 每个变体必须用独立的 BUILD_DIR（对象不跟踪 -D 变化）。
+ARMOR_VARIANT ?= 083_2kg
+ifeq ($(ARMOR_VARIANT),082_500g)
+  VAR_DEFS = -DARMOR_HW_082 -DARMOR_SENSOR_500G
+else ifeq ($(ARMOR_VARIANT),083_500g)
+  VAR_DEFS = -DARMOR_HW_083 -DARMOR_SENSOR_500G
+else ifeq ($(ARMOR_VARIANT),083_2kg)
+  VAR_DEFS = -DARMOR_HW_083 -DARMOR_SENSOR_2KG
+else
+  $(error 未知 ARMOR_VARIANT=$(ARMOR_VARIANT)（可选 082_500g / 083_500g / 083_2kg）)
+endif
+C_DEFS += $(VAR_DEFS)

@@ -88,7 +88,7 @@ App/
 | `2` | `App_Init();`（在 `MX_TIM2_Init();` 之后） | 同上 |
 | `3`（while 循环内） | `App_Loop();` | 同上 |
 
-重生成后恢复步骤：① Makefile 重新追加 `-include app.mk`（§8）；② 检查上述三个 USER CODE 块内容仍在（CubeMX 保留 USER CODE 块，通常无需重做）。
+重生成后恢复步骤：① Makefile 重新追加 `-include app.mk`（§8）；② 检查上述三个 USER CODE 块内容仍在（CubeMX 保留 USER CODE 块，通常无需重做）；③ **重新加回 082 变体守卫**：`Core/Src/main.c` 的 `SystemClock_Config()` 与 `Core/Src/stm32l4xx_hal_msp.c` 的 `HAL_ADC_MspInit()` 里的 `#if defined(ARMOR_HW_082)` 块（HSI16 /2、PLLSAI1 同源 M=2）。这两处没有 USER CODE 块，重生成会静默改回 HSE/M=1——082 固件仍能编译，但上电在 `MX_ADC1_Init` 进 `Error_Handler`。
 
 ## 8. app.mk 与构建
 
@@ -97,9 +97,17 @@ App/
 - **CubeMX 重生成会覆写 Makefile → 必须重新追加 `-include app.mk`**（已写入 CLAUDE.md 提醒）。
 - **文件名全局唯一**：Makefile 按 `notdir` 扁平化目标，`APP_SOURCES` 内任何两个文件不得同名（当前 18 个均唯一）。
 - 新增模块三步：① 建 `App/<层>/xxx.c/.h`；② `app.mk` 的 `APP_SOURCES`/`C_INCLUDES` 各加一行；③ `make -j` 验证。
+- **发布变体（v1.0.0）**：`app.mk` 用 `ARMOR_VARIANT` 注入 `-DARMOR_HW_08x -DARMOR_SENSOR_xxx`，常量在 `App/board_variant.h`（GAIN1、PGA、标识串；非法组合 `#error`）：
+  ```bash
+  make -j BUILD_DIR=build/082_500g ARMOR_VARIANT=082_500g   # 082 + 500g，HSI16/2，PGA ×1
+  make -j BUILD_DIR=build/083_500g ARMOR_VARIANT=083_500g   # 083 + 500g，HSE，PGA ×1
+  make -j BUILD_DIR=build/083_2kg  ARMOR_VARIANT=083_2kg    # 默认；083 + 2kg，HSE，PGA ×4
+  py -3 tools/release_build.py                              # 三变体 + 上位机 + release/<ver>/
+  ```
+  每个变体必须用**独立且全新**的 `BUILD_DIR`（对象不跟踪 `-D`）；`mkdir` 无 `-p`，父目录 `build/` 需存在。启动横幅 `[APP] Armor v1.0.0 (<变体>, gain1=0x…, <时钟>)` 是烧写后判别变体的唯一依据。
 - 常用命令：
   ```bash
-  make -j                      # 构建 → build/Armor_Cmzy26_081.{elf,hex,bin,map}
+  make -j                      # 默认 083_2kg → build/Armor_Cmzy26_081.{elf,hex,bin,map}
   make clean
   make GCC_PATH=<toolchain>    # 工具链不在 PATH 时
   arm-none-eabi-size build/Armor_Cmzy26_081.elf    # 内存核对

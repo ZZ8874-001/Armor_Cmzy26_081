@@ -30,6 +30,7 @@ from .settings import SENSOR_NAMES, Settings, data_dir
 from .sources import FileReplayWorker, SerialWorker, SourceWorker, available_ports
 from .store import FrameStore
 from .top_view import TopView
+from .version import HOST_VERSION
 
 BAUD_CHOICES = ("921600", "460800", "230400", "115200", "57600", "9600")
 
@@ -37,7 +38,7 @@ BAUD_CHOICES = ("921600", "460800", "230400", "115200", "57600", "9600")
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Hit_ANZ 装甲板波形上位机")
+        self.setWindowTitle(f"Hit_ANZ {HOST_VERSION} 装甲板波形上位机")
         self.resize(1360, 900)
 
         self.settings = Settings.load()

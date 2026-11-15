@@ -11,6 +11,8 @@
 #include "app/main_app.h"
 
 #include "board.h"
+#include "board_variant.h"   /* ARMOR_VARIANT_STR / ARMOR_CLK_STR / ADS_GAIN1_VALUE */
+#include "app/version.h"     /* APP_FW_VERSION */
 #include "bsp/ads131m04.h"
 #include "bsp/temp_mon.h"
 #include "bsp/ws2812_uart.h"
@@ -152,7 +154,11 @@ void App_Init(void)
     Cal_Load(&s_param);
 
     App_Log_Init();
-    App_Log_Printf("\r\nApp skeleton OK (v0.1)\r\n");
+    /* 发布横幅：版本 + 硬件变体 + 实际写入的 GAIN1 + 时钟来源。
+     * CAN/状态帧不携带版本信息，这是烧写后判别固件变体的唯一依据。 */
+    App_Log_Printf("\r\n[APP] Armor %s (%s, gain1=0x%04X, %s)\r\n",
+                   APP_FW_VERSION, ARMOR_VARIANT_STR,
+                   (unsigned)ADS_GAIN1_VALUE, ARMOR_CLK_STR);
     App_Log_Printf("[CAL] %s seq=%lu\r\n",
                    Cal_LoadedFromFlash() ? "load" : "defaults",
                    (unsigned long)Cal_GetSeq());

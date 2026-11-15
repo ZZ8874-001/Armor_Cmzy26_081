@@ -120,8 +120,17 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
   */
     PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
     PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_PLLSAI1;
+#if defined(ARMOR_HW_082)
+    /* 082 变体：PLLSAI1 与主 PLL 共用源与 M（L432 无独立 PLLSAI1M），必须
+     * 与 SystemClock_Config 的 HSI/M=2 保持一致，否则 HAL_RCCEx_PeriphCLKConfig
+     * 返回错误 → MX_ADC1_Init 进 Error_Handler。
+     * 注意：本守卫会被 CubeMX 重生成覆盖——见 CLAUDE.md 再生成清单第 ④ 条。 */
+    PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_HSI;
+    PeriphClkInit.PLLSAI1.PLLSAI1M = 2;
+#else
     PeriphClkInit.PLLSAI1.PLLSAI1Source = RCC_PLLSOURCE_HSE;
     PeriphClkInit.PLLSAI1.PLLSAI1M = 1;
+#endif
     PeriphClkInit.PLLSAI1.PLLSAI1N = 8;
     PeriphClkInit.PLLSAI1.PLLSAI1P = RCC_PLLP_DIV7;
     PeriphClkInit.PLLSAI1.PLLSAI1Q = RCC_PLLQ_DIV2;

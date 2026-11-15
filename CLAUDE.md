@@ -82,7 +82,7 @@ Clock tree: HSE bypass 8 MHz → PLL (M=1, N=20, R=2) → 80 MHz SYSCLK, ADC clo
 
 ### CubeMX regeneration checklist
 
-`Armor_Cmzy26_081.ioc` is the authoritative pin/peripheral source (the schematic has known labeling errors). After every regeneration: ① re-add `-include app.mk` to the Makefile **after** the `C_INCLUDES` block and **before** `OBJECTS`; ② confirm `USER CODE` blocks `Includes`/`2`/`3` still hold the `App_Init`/`App_Loop` calls; ③ re-apply any runtime fixups CubeMX would undo — most importantly **USART1 global interrupt must stay checked in the NVIC tab** (`.ioc` `NVIC.USART1_IRQn`, `HAL_NVIC_EnableIRQ` in `HAL_UART_MspInit`, `USART1_IRQHandler` in `stm32l4xx_it.c`): without it the TX DMA completion callback never fires and wave frames + all text logging stall while `s_wave_tx_busy` stays 1 (a regen on 2026-10-28 did exactly this, with the board already flashed; the IRQ was restored by hand and belongs in the `.ioc` now). Also required: `app.mk` filenames must stay globally unique, since the Makefile flattens objects with `notdir`.
+`Armor_Cmzy26_081.ioc` is the authoritative pin/peripheral source (the schematic has known labeling errors). After every regeneration: ① re-add `-include app.mk` to the Makefile **after** the `C_INCLUDES` block and **before** `OBJECTS`; ② confirm `USER CODE` blocks `Includes`/`2`/`3` still hold the `App_Init`/`App_Loop` calls; ③ re-apply any runtime fixups CubeMX would undo — most importantly **USART1 global interrupt must stay checked in the NVIC tab** (`.ioc` `NVIC.USART1_IRQn`, `HAL_NVIC_EnableIRQ` in `HAL_UART_MspInit`, `USART1_IRQHandler` in `stm32l4xx_it.c`): without it the TX DMA completion callback never fires and wave frames + all text logging stall while `s_wave_tx_busy` stays 1 (a regen on 2026-10-28 did exactly this, with the board already flashed; the IRQ was restored by hand and belongs in the `.ioc` now). Also required: `app.mk` filenames must stay globally unique, since the Makefile flattens objects with `notdir`. ④ **Re-apply the `ARMOR_HW_082` guards** in `Core/Src/main.c` (`SystemClock_Config`) and `Core/Src/stm32l4xx_hal_msp.c` (`HAL_ADC_MspInit` PLLSAI1 source/M): CubeMX has no USER CODE blocks there, so regeneration silently reverts them to HSE/M=1 — the 082 image still compiles but dies in `MX_ADC1_Init` because PLLSAI1 must share the main PLL's source/M on the L432.
 
 ### Debug-variable convention
 
@@ -94,13 +94,26 @@ Branches track hardware revisions, and the analog front end differs between them
 
 | Branch | What it is |
 |---|---|
-| `Test_RegularEdition_082` (current) | Production/regular edition: HSE-sourced PLL, CSS on, ADC clock 32 MHz. **GAIN1 is the revision-critical constant — read `s_reg_init` in `App/bsp/ads131m04.c`, not prose: committed `0x3333` = PGA ×8; the 2026-10-28 working tree programs `0x2222` = ×4 while its comment, `Cal_GetDefaults().gain1` and the design doc still say ×8.** |
-| `RGL_EDITION_DEVHW_fitup_1017` | Verification-board snapshot (`2f89c0f` 验证板固件配置回溯), branched from `51d45d7`; lacks the three later fixes on `Test_RegularEdition_082` |
+| `main` (current) | Production line since the v1.0.0 merge: one source tree, three build-time variants (`ARMOR_VARIANT=082_500g / 083_500g / 083_2kg`), HSE 8 MHz for 083 and HSI16/2 for 082, ADC clock 32 MHz. **GAIN1 is a build-time constant — read `ADS_GAIN1_VALUE` in `App/board_variant.h`, not prose.** |
+| `Test_RegularEdition_082` | HW082 line: HSI-sourced PLL (`PLLM=2`), PLLSAI1 on HSI/M=2, GAIN1 `0x3333` (×8). Its clock pair is the reference for the v1.0.0 `ARMOR_HW_082` guards. |
+| `RGL_EDITION_DEVHW_fitup_1017` | Verification-board snapshot (`2f89c0f` 验证板固件配置回溯), branched from `51d45d7` |
 | `Temp_Nhse` | Earlier experimental line: HSI-sourced PLL, ADC clock 64 MHz, no CSS, plus a bootloader and dual-slot A/B images (`STM32L432xx_{BOOT,SLOT_A,SLOT_B}.ld`) with Python CAN/firmware-update tooling under `tools/`, and the ISO-TP protocol |
 | `Dev_HW080` | First working rev 080 line |
-| `main` | Initial commit only (HW080 baseline) |
 
-The rev 081 → 083 front-end change (5K1 → 499 R) is why the gain constant has moved repeatedly (committed `0x3333` = ×8; working tree `0x2222` = ×4). The crew manual that recorded it is no longer in the tree.
+The rev 081 → 083 front-end change (5K1 → 499 R) is why the gain constant has moved repeatedly (×8 on the 082 branch, ×4 on `main`, ×1 for 500g). Since v1.0.0 it is no longer a hand-edited row: `App/board_variant.h` derives `ADS_GAIN1_VALUE` from `ARMOR_SENSOR_500G` (×1, `0x0000`) / `ARMOR_SENSOR_2KG` (×4, `0x2222`). The crew manual that recorded the resistor change is no longer in the tree.
+
+### Build variants (v1.0.0)
+
+`app.mk` maps `ARMOR_VARIANT` to `-DARMOR_HW_082|083` + `-DARMOR_SENSOR_500G|2KG` (default `083_2kg`, identical to the pre-release behaviour). 082 is compile-time restricted to 500g (`#error` in `App/board_variant.h`). **Each variant needs its own fresh `BUILD_DIR`** (object rules don't track `-D`; `mkdir` has no `-p`, so create `build/` first):
+
+```bash
+make -j BUILD_DIR=build/082_500g ARMOR_VARIANT=082_500g
+make -j BUILD_DIR=build/083_500g ARMOR_VARIANT=083_500g
+make -j BUILD_DIR=build/083_2kg  ARMOR_VARIANT=083_2kg
+py -3 tools/release_build.py     # 三变体 + 上位机 EXE + release/<ver>/ + SHA256SUMS
+```
+
+082 also needs the HSI clock: `Core/Src/main.c` (`SystemClock_Config`) and `Core/Src/stm32l4xx_hal_msp.c` (`HAL_ADC_MspInit` PLLSAI1 source/M) carry `#if defined(ARMOR_HW_082)` guards. **These are CubeMX-generated files with no USER CODE blocks there — regeneration wipes them**; without the guards the 082 image compiles but hangs in `MX_ADC1_Init` (`Error_Handler`). The boot banner `[APP] Armor v1.0.0 (<variant>, gain1=…, <clk>)` is the only reliable way to tell which binary is flashed (CAN/status frames carry no version).
 
 ## Documentation map
 

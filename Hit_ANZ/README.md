@@ -1,4 +1,4 @@
-# Hit_ANZ — 装甲板波形上位机（波形 + 冲量特征 + 落点定位 + 在线调参）
+# Hit_ANZ v1.0.0 — 装甲板波形上位机（波形 + 冲量特征 + 落点定位 + 在线调参）
 
 接收装甲板经 USART1（**921600 8N1**）发来的 `WAV1` 冻结窗波形帧，
 绘制四通道 hp 波形；**「落点分析」页签**按帧计算每传感器峰值/冲量/均方根，
@@ -161,6 +161,9 @@ py -3 build_exe.py --onefile    # 单文件（启动慢、杀软误报多，不�
   DLL。**`PySide6.QtOpenGL` / `QtOpenGLWidgets` 不能排除**——pyqtgraph 的
   `Qt/OpenGLHelpers.py` 无条件导入它们（排除后启动即 ModuleNotFoundError）。
 - 打包后自检：`--console` 版本启动应无 traceback；关闭窗口后 EXE 旁应出现 `config.json`。
+- **发布包**：仓库根 `tools/release_build.py` 会重新打包并把 `dist/Hit_ANZ/` 拷到
+  `release/<版本>/host/Hit_ANZ/`（附带当前 `calib/transfer.npz`，且不带开发机 `config.json`），
+  同时生成固件三变体与 `SHA256SUMS`。窗口标题中的版本号来自 `app/version.py`。
 
 ## 无硬件自测
 

@@ -13,6 +13,7 @@
  ******************************************************************************
  */
 #include "detect/calibration.h"
+#include "board_variant.h"   /* ADS_PGA_GAIN：P17 与实际 GAIN1 保持一致 */
 #include "bsp/flash_store.h"
 #include <stddef.h>
 #include <string.h>
@@ -79,10 +80,12 @@ void Cal_GetDefaults(hit_param_t *p)
     p->team_color     = TEAM_COLOR_RED;
 
     /* --- ADC 与开关 --- */
-    p->gain1[0] = 8u;   /* P17 量产版：4 通道 PGA=8（传感器 0.25× + 前端 0.5435× 补偿，与 s_reg_init GAIN1=0x3333 一致） */
-    p->gain1[1] = 8u;
-    p->gain1[2] = 8u;
-    p->gain1[3] = 8u;
+    /* P17：与实际写入的 GAIN1 保持一致（按变体：500g=×1，2kg=×4）。
+     * 注意该字段当前无运行期消费者（驱动直接用 ADS_GAIN1_VALUE），仅作记录。 */
+    p->gain1[0] = (uint8_t)ADS_PGA_GAIN;
+    p->gain1[1] = (uint8_t)ADS_PGA_GAIN;
+    p->gain1[2] = (uint8_t)ADS_PGA_GAIN;
+    p->gain1[3] = (uint8_t)ADS_PGA_GAIN;
     p->evt_enable     = 0x01u;            /* 事件使能开，CRC 关 */
     p->temp_over_mv   = 750u;             /* 保护阈值默认最宽松：=窗上限，等效不触发 */
     p->osr            = 1024u;

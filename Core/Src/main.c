@@ -161,12 +161,26 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
+#if defined(ARMOR_HW_082)
+  /* 082 变体（仅 500g）：HSI16 内部晶振，M=/2 → 8 MHz PLL 输入 → 80 MHz。
+   * 必须与 HAL_ADC_MspInit 的 PLLSAI1 源/M 同步（L432 上 PLLSAI1 与主 PLL
+   * 共用源与 M，不一致会让 MX_ADC1_Init 进 Error_Handler）。
+   * 注意：本守卫会被 CubeMX 重生成覆盖——见 CLAUDE.md 再生成清单第 ④ 条。 */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 2;
+  RCC_OscInitStruct.PLL.PLLN = 20;
+#else
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 1;
   RCC_OscInitStruct.PLL.PLLN = 20;
+#endif
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
