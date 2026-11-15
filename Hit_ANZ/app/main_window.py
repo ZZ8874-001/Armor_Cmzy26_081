@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from . import analyzer, commands
 from .plot_widget import WavePlot
 from .protocol import FrameParser
-from .settings import SENSOR_NAMES, Settings
+from .settings import SENSOR_NAMES, Settings, data_dir
 from .sources import FileReplayWorker, SerialWorker, SourceWorker, available_ports
 from .store import FrameStore
 from .top_view import TopView
@@ -1040,7 +1040,8 @@ class MainWindow(QMainWindow):
     def _calib_path(self) -> Path:
         if self.settings.calib_path:
             return Path(self.settings.calib_path)
-        return Path(__file__).resolve().parent.parent / "calib" / "transfer.npz"
+        # 源码=Hit_ANZ/calib/；打包=EXE 旁 calib/（见 settings.data_dir）
+        return data_dir() / "calib" / "transfer.npz"
 
     def _reload_calib(self, quiet: bool = False) -> None:
         path = self._calib_path()

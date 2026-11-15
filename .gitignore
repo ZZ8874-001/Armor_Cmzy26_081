@@ -10,6 +10,9 @@ Hit_ANZ/config.json
 Hit_ANZ/calib/
 # 冒烟测试截屏（--shot 生成）
 Hit_ANZ/test/tab2.png
+# PyInstaller 打包产物（Hit_ANZ/build_exe.py 生成；仓库根 /build 是固件产物）
+Hit_ANZ/dist/
+Hit_ANZ/pyi_build/
 
 # 离线安装用的轮子（131MB，不入库；用 pip download 重新生成）
 /wheels/

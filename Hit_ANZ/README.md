@@ -135,6 +135,33 @@ py -3 -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple ^
 `config.json` 不入库（`.gitignore`），每台机器独立保存；测试可用环境变量
 `HIT_ANZ_CONFIG` 指向别处。
 
+**数据目录**（`app/settings.py` 的 `data_dir()`）：源码运行时 = `Hit_ANZ/`（`config.json`
+与默认标定集 `calib/transfer.npz` 都在这里）；打包成 EXE 后 = **EXE 所在目录**（便携分发，
+整个文件夹拷贝即可；onefile 的临时解压目录关窗即丢，不能用来存配置）。若 EXE 目录不可写
+（Program Files / 只读共享），自动回退 `%LOCALAPPDATA%\Hit_ANZ`。`HIT_ANZ_CONFIG` 始终优先。
+
+## 打包为 EXE（Windows，目标机无需 Python 环境）
+
+```bash
+py -3 -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple pyinstaller   # 一次
+py -3 build_exe.py              # onedir + 无控制台（分发用）
+py -3 build_exe.py --console    # 调试：保留控制台看 traceback
+py -3 build_exe.py --onefile    # 单文件（启动慢、杀软误报多，不推荐）
+```
+
+- 产物 `dist/Hit_ANZ/`（约 130 MB）：整个文件夹拷到目标机，双击 `dist/Hit_ANZ/Hit_ANZ.exe`
+  即用；无需 Python / VC 运行库。**不要运行 `pyi_build/Hit_ANZ/Hit_ANZ.exe`**——那是
+  PyInstaller 的中间产物（旁边没有 `_internal`），双击会报
+  「Failed to load Python DLL ... LoadLibrary 找不到指定的模块」；构建脚本成功后会自动删除它。
+- **构建只写 `dist/` 与 `pyi_build/`**：不触碰仓库根 `build/`（固件产物）、`config.json`、
+  `calib/`、`test/`——本地配置、标定集与样例抓包保持原样。
+- 数据目录：打包版首次运行在 EXE 旁生成 `config.json` 与 `calib/`（目录不可写时回退
+  `%LOCALAPPDATA%\Hit_ANZ`），见「设置」一节的说明。
+- 裁剪：已排除 scipy/matplotlib 与未使用的 Qt 模块，并删除 Qt 语言包与软件 OpenGL 回退
+  DLL。**`PySide6.QtOpenGL` / `QtOpenGLWidgets` 不能排除**——pyqtgraph 的
+  `Qt/OpenGLHelpers.py` 无条件导入它们（排除后启动即 ModuleNotFoundError）。
+- 打包后自检：`--console` 版本启动应无 traceback；关闭窗口后 EXE 旁应出现 `config.json`。
+
 ## 无硬件自测
 
 ```bash
@@ -142,6 +169,7 @@ py -3 tools/gen_sample_capture.py      # 生成 test/sample_capture.bin（含 CR
 py -3 tools/selftest_parser.py         # 解析器断言：整块/随机分块/逐字节 结果一致
 py -3 tools/selftest_analyzer.py       # 分析层断言：特征/签名/反演/越界/守卫
 py -3 tools/selftest_commands.py       # HCMD 断言：参数表/帧构造/载荷/ACK/门控（零 Qt）
+py -3 tools/selftest_paths.py          # 数据目录断言：源码/frozen 模拟/环境覆盖/父目录创建
 py -3 tools/smoke_gui.py               # offscreen 启动 GUI + 回放，断言曲线/落点/命令 UI
 py -3 tools/smoke_gui.py --shot test/tab2.png   # 额外截屏「落点分析」页（offscreen 无字体，中文显方块属预期）
 ```
@@ -154,7 +182,7 @@ app/sources.py        通信层：SerialWorker / FileReplayWorker（QThread，�
 app/protocol.py       数据层：WAV1 流式解析器（零 Qt，可 CLI 单测）
 app/commands.py       数据层：HCMD 命令帧构造 + [CMD] ACK 解析（零 Qt，可 CLI 单测）
 app/store.py          数据层：帧存储 + trig_id 跳号 + 原始流缓冲
-app/settings.py       设置层：config.json 持久化
+app/settings.py       设置层：config.json 持久化 + frozen 感知数据目录（data_dir）
 app/analyzer.py       分析层：特征（峰值/冲量/RMS）+ EMA 标定/反演/越界（零 Qt，可 CLI 单测）
 app/plot_widget.py    展示层：pyqtgraph 四通道波形
 app/top_view.py       展示层：俯视图（几何/残差热图/落点/历史/标定高亮）

@@ -14,18 +14,53 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 SENSOR_NAMES = ("a", "b", "c", "d")
 
+_DATA_DIR: Path | None = None            # 进程内缓存（frozen 写探测只做一次）
+
+
+def _reset_data_dir() -> None:
+    """清除数据目录缓存（仅供测试模拟 frozen）。"""
+    global _DATA_DIR
+    _DATA_DIR = None
+
+
+def data_dir() -> Path:
+    """可写数据目录。
+
+    源码运行：Hit_ANZ/（与旧行为一致）。
+    frozen（PyInstaller onefile/onedir 均适用，判据 sys.frozen）：EXE 所在目录
+    ——onefile 的 __file__ 在 %TEMP%/_MEIxxxx 临时目录里，关窗即丢，不能用。
+    EXE 目录写探测失败（Program Files/只读共享）→ 回退 %LOCALAPPDATA%/Hit_ANZ。
+    """
+    global _DATA_DIR
+    if _DATA_DIR is not None:
+        return _DATA_DIR
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent
+        try:
+            probe = base / ".hit_anz_write_probe"
+            probe.write_bytes(b"")
+            probe.unlink()
+        except OSError:
+            base = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Hit_ANZ"
+            base.mkdir(parents=True, exist_ok=True)
+    else:
+        base = Path(__file__).resolve().parent.parent
+    _DATA_DIR = base
+    return base
+
 
 def config_path() -> Path:
-    """配置文件位置：默认 Hit_ANZ/config.json；测试可用 HIT_ANZ_CONFIG 覆盖。"""
+    """配置文件位置：数据目录下 config.json；测试可用 HIT_ANZ_CONFIG 覆盖。"""
     env = os.environ.get("HIT_ANZ_CONFIG")
     if env:
         return Path(env)
-    return Path(__file__).resolve().parent.parent / "config.json"
+    return data_dir() / "config.json"
 
 
 @dataclass
@@ -111,8 +146,9 @@ class Settings:
     def save(self, path: Path | None = None) -> None:
         self.sync_corners()
         try:
-            Path(path or config_path()).write_text(
-                json.dumps(asdict(self), ensure_ascii=False, indent=2),
-                encoding="utf-8")
+            p = Path(path or config_path())
+            p.parent.mkdir(parents=True, exist_ok=True)   # 回退目录/测试临时子目录
+            p.write_text(json.dumps(asdict(self), ensure_ascii=False, indent=2),
+                         encoding="utf-8")
         except OSError:
             pass                    # 配置写失败不影响运行
