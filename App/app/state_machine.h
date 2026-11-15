@@ -3,7 +3,9 @@
  * @file    state_machine.h
  * @brief   模块状态机接口（TIM2 1kHz 中断驱动，设计文档 v1.5 第 11 章）。
  *
- * 七状态：BOOT / NORMAL / HIT / FAULT / COMM_LOST / ID_SETUP / ID_CONFLICT。
+ * 八状态：BOOT / NORMAL / HIT / FAULT / COMM_LOST / ID_SETUP / ID_CONFLICT /
+ * REF_PENDING（上电校准：基线 EMA 热身 5τ 紫 1Hz 慢闪，随后 20s 击打探测窗紫 5Hz
+ *               快闪，等首次击打记录参考样本；无可用参考时不超时退出）。
  * 转移条件见设计文档 11 章状态表；灯光联动见 led_status.h。
  ******************************************************************************
  */
@@ -22,6 +24,7 @@ typedef enum
     SM_STATE_COMM_LOST,
     SM_STATE_ID_SETUP,
     SM_STATE_ID_CONFLICT,
+    SM_STATE_REF_PENDING,   /* 紫闪校准：热身 5τ 慢闪 + 20s 探测窗快闪（故障之后、离线之前） */
     SM_STATE_COUNT
 } sm_state_t;
 
